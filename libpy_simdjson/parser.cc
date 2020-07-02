@@ -70,6 +70,10 @@ private:
 public:
     pysimdjson() = default;
 
+    py::owned_ref<> operator[](std::string field) {
+        return py::to_object(m_doc[field]);
+    }
+
     void load(std::string filename) {
         m_doc = m_parser.load(filename);
     }
@@ -79,7 +83,7 @@ public:
         m_doc = m_parser.parse(in_string);
     }
 
-    py::owned_ref <> at(std::string json_pntr) {
+    py::owned_ref<> at(std::string json_pntr) {
         simdjson::dom::element result;
         auto maybe_result = m_doc.at(json_pntr);
         auto error = maybe_result.get(result);
@@ -97,6 +101,7 @@ LIBPY_AUTOMODULE(libpy_simdjson, simdjson, ({}))
     py::owned_ref t = py::autoclass<pysimdjson>(PyModule_GetName(m.get()) + ".Simdjson"s)
                           .new_<>()
                           .doc("Python bindings to Simdjson")  // add a class docstring
+                          .mapping<std::string>()
                           .def<&pysimdjson::load>("load")
                           .def<&pysimdjson::loads>("loads")
                           .def<&pysimdjson::at>("at")

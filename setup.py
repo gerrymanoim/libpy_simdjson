@@ -44,6 +44,7 @@ setup(
         extension(
             "libpy_simdjson.simdjson",
             ["libpy_simdjson/parser.cc", "libpy_simdjson/simdjson.cpp"],
+            extra_compile_args=["-DLIBPY_AUTOCLASS_UNSAFE_API"],
         ),
     ],
 )
