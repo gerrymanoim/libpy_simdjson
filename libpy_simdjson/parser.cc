@@ -32,7 +32,7 @@ LIBPY_AUTOMODULE(libpy_simdjson, simdjson, ({}))
                           .new_<>()
                           .doc("Python bindings to Simdjson")  // add a class docstring
                           .def<&pysimdjson::load>("load")
-                          .def<&pysimdjson::parse>("parse")
+                          .def<&pysimdjson::loads>("loads")
                           .type();
     return PyObject_SetAttrString(m.get(), "Simdjson", static_cast<PyObject*>(t));
 }
