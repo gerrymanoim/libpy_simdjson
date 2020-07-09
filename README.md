@@ -64,3 +64,9 @@ Out[4]: 39.9
 - [ ] fix directory structures
 - [ ] benchmarks
 - [ ] tests/CI/publish
+- [ ] a real README
+- [ ] string padding?
+- [ ] extra functions
+   - [ ] validate_utf8
+   - [ ] load_many/parse_many
+   - [ ] load_many/parse_many with threads?
