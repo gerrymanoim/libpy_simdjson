@@ -64,7 +64,7 @@ struct to_object<simdjson::simdjson_result<T>> {
 
 namespace libpy_simdjson {
 
-class parser : std::enable_shared_from_this<parser> {
+class parser : public std::enable_shared_from_this<parser> {
 private:
     simdjson::dom::parser m_parser;
 
@@ -86,12 +86,13 @@ private:
     simdjson::dom::object m_value;
 
 public:
-    object_element(std::shared_ptr<libpy_simdjson::parser> parser_pntr,
-                   simdjson::dom::object value) {
+    object_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::object value) {
         m_parser = parser_pntr;
-        //m_value = simdjson::dom::object(value);
+        // m_value = simdjson::dom::object(value);
         m_value = value;
     }
+
+    py::owned_ref<> operator[](std::string field);
 
     py::owned_ref<> at(std::string json_pntr);
 
@@ -113,10 +114,9 @@ private:
     simdjson::dom::array m_value;
 
 public:
-    array_element(std::shared_ptr<libpy_simdjson::parser> parser_pntr,
-                  simdjson::dom::array value) {
+    array_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::array value) {
         m_parser = parser_pntr;
-        //m_value = simdjson::dom::array(value);
+        // m_value = simdjson::dom::array(value);
         m_value = value;
     }
 
@@ -133,7 +133,7 @@ public:
     }
 };
 
-py::owned_ref<> disambiguate_result(std::shared_ptr<libpy_simdjson::parser> parser_pntr,
+py::owned_ref<> disambiguate_result(std::shared_ptr<parser> parser_pntr,
                                     simdjson::dom::element result) {
     auto result_type = result.type();
     switch (result_type) {
@@ -176,6 +176,10 @@ py::owned_ref<> parser::loads(std::string in_string) {
     return disambiguate_result(shared_from_this(), result);
 }
 
+py::owned_ref<> object_element::operator[](std::string field) {
+        return disambiguate_result(m_parser, m_value[field]);
+}
+
 py::owned_ref<> object_element::at(std::string json_pntr) {
     simdjson::dom::element result;
     auto maybe_result = m_value.at(json_pntr);
@@ -201,7 +205,7 @@ py::owned_ref<> load(std::string filename) {
 }
 
 py::owned_ref<> loads(std::string in_string) {
-    return std::make_shared<parser>()->load(in_string);
+    return std::make_shared<parser>()->loads(in_string);
 }
 
 using namespace std::string_literals;
@@ -219,6 +223,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
     PyObject_SetAttrString(m.get(), "Parser", static_cast<PyObject*>(a));
     py::owned_ref b = py::autoclass<object_element>(PyModule_GetName(m.get()) +
                                                     ".Object"s)
+                          .mapping<std::string>()
                           .def<&object_element::at>("at")
                           .type();
     PyObject_SetAttrString(m.get(), "Object", static_cast<PyObject*>(b));
