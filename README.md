@@ -47,3 +47,20 @@ In [3]: parser.load("json_pointer.json")
 In [4]: parser.at(b"0/tire_pressure/1")
 Out[4]: 39.9
 ```
+
+## TODO
+
+- [ ] iterrators
+   - [ ] object
+   - [ ] arrays
+- [ ] as dict methods for arrays 
+- [ ] keys and values methods for objects
+- [ ] len methods
+   - [ ] objects
+   - [ ] arrays
+- [ ] clean up exceptions
+- [ ] clean up code
+- [ ] fix names
+- [ ] fix directory structures
+- [ ] benchmarks
+- [ ] tests/CI/publish
