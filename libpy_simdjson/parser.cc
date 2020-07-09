@@ -64,8 +64,21 @@ struct to_object<simdjson::simdjson_result<T>> {
 
 namespace libpy_simdjson {
 
-class parser;
-class array_element;
+class parser : std::enable_shared_from_this<parser> {
+private:
+    simdjson::dom::parser m_parser;
+
+public:
+    parser() = default;
+
+    std::shared_ptr<parser> getptr() {
+        return shared_from_this();
+    }
+
+    py::owned_ref<> load(std::string filename);
+
+    py::owned_ref<> loads(std::string in_string);
+};
 
 class object_element {
 private:
@@ -73,36 +86,14 @@ private:
     simdjson::dom::object m_value;
 
 public:
-    object_element(std::shared_ptr<libpy_simdjson::parser> parser_pntr, simdjson::dom::object value) {
+    object_element(std::shared_ptr<libpy_simdjson::parser> parser_pntr,
+                   simdjson::dom::object value) {
         m_parser = parser_pntr;
+        //m_value = simdjson::dom::object(value);
         m_value = value;
     }
 
-    ~object_element() {
-        m_parser->decref();
-    }
-
-    py::owned_ref<> disambiguate_result(simdjson::dom::element result) {
-        auto result_type = result.type();
-        switch (result_type) {
-        case simdjson::dom::element_type::ARRAY:
-            return array_element(m_parser, result);
-        case simdjson::dom::element_type::OBJECT:
-            return object_element(m_parser, result);
-        default:
-            return py::to_object(result);
-        }
-    }
-
-    py::owned_ref<> at(std::string json_pntr) {
-        simdjson::dom::element result;
-        auto maybe_result = m_value.at(json_pntr);
-        auto error = maybe_result.get(result);
-        if (error) {
-            throw py::exception(PyExc_ValueError, "Could not get element at ", json_pntr);
-        }
-        return disambiguate_result(result);
-    }
+    py::owned_ref<> at(std::string json_pntr);
 
     using iterator = simdjson::dom::object::iterator;
 
@@ -122,36 +113,14 @@ private:
     simdjson::dom::array m_value;
 
 public:
-    array_element(std::shared_ptr<libpy_simdjson::parser> parser_pntr, simdjson::dom::object value) {
+    array_element(std::shared_ptr<libpy_simdjson::parser> parser_pntr,
+                  simdjson::dom::array value) {
         m_parser = parser_pntr;
+        //m_value = simdjson::dom::array(value);
         m_value = value;
     }
 
-    ~array_element() {
-        m_parser->decref();
-    }
-
-    py::owned_ref<> disambiguate_result(simdjson::dom::element result) {
-        auto result_type = result.type();
-        switch (result_type) {
-        case simdjson::dom::element_type::ARRAY:
-            return array_element(m_parser, result);
-        case simdjson::dom::element_type::OBJECT:
-            return object_element(m_parser, result);
-        default:
-            return py::to_object(result);
-        }
-    }
-
-    py::owned_ref<> at(std::string json_pntr) {
-        simdjson::dom::element result;
-        auto maybe_result = m_value.at(json_pntr);
-        auto error = maybe_result.get(result);
-        if (error) {
-            throw py::exception(PyExc_ValueError, "Could not get element at ", json_pntr);
-        }
-        return disambiguate_result(result);
-    }
+    py::owned_ref<> at(std::string json_pntr);
 
     using iterator = simdjson::dom::array::iterator;
 
@@ -164,58 +133,75 @@ public:
     }
 };
 
-class parser : std::enable_shared_from_this<parser> {
-private:
-    simdjson::dom::parser m_parser;
-
-public:
-    parser() = default;
-
-    std::shared_ptr<parser> getptr() {
-        return shared_from_this();
+py::owned_ref<> disambiguate_result(std::shared_ptr<libpy_simdjson::parser> parser_pntr,
+                                    simdjson::dom::element result) {
+    auto result_type = result.type();
+    switch (result_type) {
+    case simdjson::dom::element_type::ARRAY:
+        return py::autoclass<array_element>::construct(parser_pntr, result);
+    case simdjson::dom::element_type::OBJECT:
+        return py::autoclass<object_element>::construct(parser_pntr, result);
+    default:
+        return py::to_object(result);
     }
+}
 
-    py::owned_ref<> load(std::string filename) {
-        if (weak_from_this().use_count() > 1) {
-            throw py::exception(
-                PyExc_ValueError,
-                "cannot reparse while live objects exist from a prior parse");
-        }
-        auto m_doc = m_parser.load(filename);
-        return disambiguate_result(m_doc);
+py::owned_ref<> parser::load(std::string filename) {
+    if (weak_from_this().use_count() > 1) {
+        throw py::exception(PyExc_ValueError,
+                            "cannot reparse while live objects exist from a prior parse");
     }
+    auto maybe_result = m_parser.load(filename);
+    simdjson::dom::element result;
+    auto error = maybe_result.get(result);
+    if (error) {
+        // throw
+        throw py::exception(PyExc_ValueError, "Issue with that parse");
+    }
+    return disambiguate_result(shared_from_this(), result);
+}
 
-    py::owned_ref<> loads(std::string in_string) {
-        if (weak_from_this().use_count() > 1) {
-            throw py::exception(
-                PyExc_ValueError,
-                "cannot reparse while live objects exist from a prior parse");
-        }
-        auto m_doc = m_parser.parse(in_string);
-        return disambiguate_result(m_doc);
+py::owned_ref<> parser::loads(std::string in_string) {
+    if (weak_from_this().use_count() > 1) {
+        throw py::exception(PyExc_ValueError,
+                            "cannot reparse while live objects exist from a prior parse");
     }
+    auto maybe_result = m_parser.parse(in_string);
+    simdjson::dom::element result;
+    auto error = maybe_result.get(result);
+    if (error) {
+        // throw
+        throw py::exception(PyExc_ValueError, "Issue with that parse");
+    }
+    return disambiguate_result(shared_from_this(), result);
+}
 
-    py::owned_ref<> disambiguate_result(simdjson::dom::element result) {
-        auto result_type = result.type();
-        switch (result_type) {
-        case simdjson::dom::element_type::ARRAY:
-            return array_element(shared_from_this(), result);
-        case simdjson::dom::element_type::OBJECT:
-            return object_element(shared_from_this(), result);
-        default:
-            return py::to_object(result);
-        }
+py::owned_ref<> object_element::at(std::string json_pntr) {
+    simdjson::dom::element result;
+    auto maybe_result = m_value.at(json_pntr);
+    auto error = maybe_result.get(result);
+    if (error) {
+        throw py::exception(PyExc_ValueError, "Could not get element at ", json_pntr);
     }
-};
+    return disambiguate_result(m_parser, result);
+}
+
+py::owned_ref<> array_element::at(std::string json_pntr) {
+    simdjson::dom::element result;
+    auto maybe_result = m_value.at(json_pntr);
+    auto error = maybe_result.get(result);
+    if (error) {
+        throw py::exception(PyExc_ValueError, "Could not get element at ", json_pntr);
+    }
+    return disambiguate_result(m_parser, result);
+}
 
 py::owned_ref<> load(std::string filename) {
-    parser this_parser();
-    return this_parser.load(filename);
+    return std::make_shared<parser>()->load(filename);
 }
 
 py::owned_ref<> loads(std::string in_string) {
-    parser this_parser();
-    return this_parser.loads(in_string);
+    return std::make_shared<parser>()->load(in_string);
 }
 
 using namespace std::string_literals;
@@ -242,6 +228,6 @@ LIBPY_AUTOMODULE(libpy_simdjson,
                           .type();
     PyObject_SetAttrString(m.get(), "Array", static_cast<PyObject*>(c));
 
-    return true;
+    return false;
 }
 }  // namespace libpy_simdjson
