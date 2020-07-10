@@ -50,14 +50,18 @@ Out[4]: 39.9
 
 ## TODO
 
-- [ ] iterrators
-   - [ ] object
-   - [ ] arrays
-- [ ] as dict methods for arrays 
-- [ ] keys and values methods for objects
-- [ ] len methods
-   - [ ] objects
-   - [ ] arrays
+- [X] iterators
+   - [X] object
+   - [X] arrays
+   - Note: Right now when iterate we convert everything automatically to python objects. Should we be smarter? Or is that not expected?
+- [X] as dict methods for objects 
+- [X] keys methods for objects
+- [ ] values methods for objects
+- [X] len methods
+   - [X] objects
+   - [X] arrays
+- [ ] `count` for array
+- [ ] `index` for array
 - [ ] clean up exceptions
 - [ ] clean up code
 - [ ] fix names
@@ -65,8 +69,11 @@ Out[4]: 39.9
 - [ ] benchmarks
 - [ ] tests/CI/publish
 - [ ] a real README
+- [ ] Package a release
 - [ ] string padding?
 - [ ] extra functions
    - [ ] validate_utf8
    - [ ] load_many/parse_many
    - [ ] load_many/parse_many with threads?
+   - [ ] case insensitive at?
+

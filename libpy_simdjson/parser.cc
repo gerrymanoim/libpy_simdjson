@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -60,6 +61,13 @@ struct to_object<simdjson::simdjson_result<T>> {
     }
 };
 
+template<>
+struct to_object<simdjson::dom::key_value_pair> {
+    static py::owned_ref<> f(const simdjson::dom::key_value_pair& key_value_pair) {
+        return py::build_tuple(key_value_pair.key, key_value_pair.value);
+    }
+};
+
 }  // namespace py::dispatch
 
 namespace libpy_simdjson {
@@ -86,17 +94,32 @@ private:
     simdjson::dom::object m_value;
 
 public:
-    object_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::object value) {
-        m_parser = parser_pntr;
-        // m_value = simdjson::dom::object(value);
-        m_value = value;
-    }
+    object_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::object value)
+        : m_parser(parser_pntr), m_value(value) {}
 
     py::owned_ref<> operator[](std::string field);
 
     py::owned_ref<> at(std::string json_pntr);
 
-    using iterator = simdjson::dom::object::iterator;
+    std::vector<std::string_view> keys() {
+        std::vector<std::string_view> out;
+        for (auto [key, value] : m_value) {
+            out.push_back(key);
+        }
+        return out;
+    }
+
+    py::owned_ref<> values();
+
+    py::owned_ref<> as_dict() {
+        return py::to_object(m_value);
+    }
+
+    std::size_t size() {
+        return m_value.size();
+    }
+
+    typedef simdjson::dom::object::iterator iterator;
 
     iterator begin() {
         return m_value.begin();
@@ -105,7 +128,7 @@ public:
     iterator end() {
         return m_value.end();
     }
-    // TODO keys, values, etc
+
 };
 
 class array_element {
@@ -114,15 +137,25 @@ private:
     simdjson::dom::array m_value;
 
 public:
-    array_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::array value) {
-        m_parser = parser_pntr;
-        // m_value = simdjson::dom::array(value);
-        m_value = value;
-    }
+    array_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::array value)
+        : m_parser(parser_pntr), m_value(value) {}
 
     py::owned_ref<> at(std::string json_pntr);
 
-    using iterator = simdjson::dom::array::iterator;
+    // py::owned_ref<> count(py::borrowed_ref elem) {
+    //     return std::count(m_value.begin(), m_value.end(), elem);
+    // }
+    py::owned_ref<> operator[](std::size_t index);
+
+    py::owned_ref<> as_list() {
+        return py::to_object(m_value);
+    }
+
+    std::size_t size() {
+        return m_value.size();
+    }
+
+    typedef simdjson::dom::array::iterator iterator;
 
     iterator begin() {
         return m_value.begin();
@@ -177,7 +210,7 @@ py::owned_ref<> parser::loads(std::string in_string) {
 }
 
 py::owned_ref<> object_element::operator[](std::string field) {
-        return disambiguate_result(m_parser, m_value[field]);
+    return disambiguate_result(m_parser, m_value[field]);
 }
 
 py::owned_ref<> object_element::at(std::string json_pntr) {
@@ -196,6 +229,16 @@ py::owned_ref<> array_element::at(std::string json_pntr) {
     auto error = maybe_result.get(result);
     if (error) {
         throw py::exception(PyExc_ValueError, "Could not get element at ", json_pntr);
+    }
+    return disambiguate_result(m_parser, result);
+}
+
+py::owned_ref<> array_element::operator[](std::size_t index) {
+    simdjson::dom::element result;
+    auto maybe_result = m_value.at(index);
+    auto error = maybe_result.get(result);
+    if (error) {
+        throw py::exception(PyExc_ValueError, "Could not get element at ", index);
     }
     return disambiguate_result(m_parser, result);
 }
@@ -225,11 +268,19 @@ LIBPY_AUTOMODULE(libpy_simdjson,
                                                     ".Object"s)
                           .mapping<std::string>()
                           .def<&object_element::at>("at")
+                          .def<&object_element::as_dict>("as_dict")
+                          .def<&object_element::keys>("keys")
+                          .len()
+                          .iter()
                           .type();
     PyObject_SetAttrString(m.get(), "Object", static_cast<PyObject*>(b));
 
     py::owned_ref c = py::autoclass<array_element>(PyModule_GetName(m.get()) + ".Array"s)
                           .def<&array_element::at>("at")
+                          .def<&array_element::as_list>("as_list")
+                          .mapping<std::size_t>()
+                          .len()
+                          .iter()
                           .type();
     PyObject_SetAttrString(m.get(), "Array", static_cast<PyObject*>(c));
 
