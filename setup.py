@@ -17,7 +17,7 @@ else:
 
 
 def extension(*args, **kwargs):
-    extra_compile_args = []
+    extra_compile_args = ["-DLIBPY_AUTOCLASS_UNSAFE_API"]
     if sys.platform == 'darwin':
         extra_compile_args.append('-mmacosx-version-min=10.15')
 
@@ -51,7 +51,6 @@ setup(
         extension(
             "libpy_simdjson.parser",
             ["libpy_simdjson/parser.cc", "libpy_simdjson/simdjson.cpp"],
-            extra_compile_args=["-DLIBPY_AUTOCLASS_UNSAFE_API"],
         ),
     ],
 )
