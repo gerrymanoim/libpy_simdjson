@@ -16,7 +16,7 @@ import libpy_simdjson as json
 doc = json.load(Path("twitter.json"))
 # or json.load(b"twitter.json")
 # or json.load("twitter.json")
-# we also support `laods` for strings. 
+# we also support `loads` for strings. 
 ```
 
 `doc` is an `Object`. Objects act as python dicts with special methods. 
