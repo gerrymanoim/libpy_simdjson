@@ -1,4 +1,5 @@
-from libpy_simdjson import simdjson
+import libpy_simdjson as simdjson
+
 
 def test_as_dict(object_element, py_object_element):
     actual_dict = object_element.as_dict()

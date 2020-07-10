@@ -1,6 +1,6 @@
 # Libpy Simdjson
 
-Python bindings for simdjson using libpy. 
+Python bindings for simdjson using libpy.
 
 ```
 In [1]: from libpy_simdjson import simdjson
@@ -10,7 +10,7 @@ In [2]: parser = simdjson.Simdjson()
 In [3]: parser.load(b"twitter.json")
 ```
 
-## Fields 
+## Fields
 
 Access fields via `[]`:
 
@@ -54,7 +54,7 @@ Out[4]: 39.9
    - [X] object
    - [X] arrays
    - Note: Right now when iterate we convert everything automatically to python objects. Should we be smarter? Or is that not expected?
-- [X] as dict methods for objects 
+   - [X] as dict methods for objects
 - [X] keys methods for objects
 - [ ] values methods for objects
 - [X] len methods
@@ -64,6 +64,7 @@ Out[4]: 39.9
 - [ ] `index` for array
 - [ ] const everything that one might const
 - [ ] clean up exceptions
+  - [ ] Change ValueError to IndexError for OOB Array indexing
 - [ ] clean up code
 - [ ] fix names
 - [ ] fix directory structures
@@ -77,4 +78,5 @@ Out[4]: 39.9
    - [ ] load_many/parse_many
    - [ ] load_many/parse_many with threads?
    - [ ] case insensitive at?
-
+- [ ] Add reprs to Object and Array
+- [ ] Support negative indexing in Array
