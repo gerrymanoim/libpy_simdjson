@@ -5,6 +5,7 @@
 #include <libpy/autoclass.h>
 #include <libpy/autofunction.h>
 #include <libpy/automodule.h>
+#include <libpy/build_tuple.h>
 #include <libpy/to_object.h>
 
 #include "simdjson.h"
@@ -100,6 +101,14 @@ public:
     py::owned_ref<> operator[](const std::string& field);
 
     py::owned_ref<> at(const std::string& json_pntr);
+
+    std::vector<py::owned_ref<>> items() {
+        std::vector<py::owned_ref<>> out;
+        for (auto [key, value] : m_value) {
+            out.push_back(py::build_tuple(key, value));
+        }
+        return out;
+    }
 
     std::vector<std::string_view> keys() {
         std::vector<std::string_view> out;
@@ -269,6 +278,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
                           .mapping<std::string>()
                           .def<&object_element::at>("at")
                           .def<&object_element::as_dict>("as_dict")
+                          .def<&object_element::items>("items")
                           .def<&object_element::keys>("keys")
                           .len()
                           .iter()
