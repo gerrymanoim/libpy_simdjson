@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from libpy_simdjson import simdjson
+import libpy_simdjson as simdjson
 
 JSON_FIXTURES_DIR = Path(__file__).parent / "jsonexamples"
 

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -13,11 +14,7 @@
 namespace py::dispatch {
 
 template<>
-struct to_object<simdjson::dom::array> {
-    static py::owned_ref<> f(const simdjson::dom::array& v) {
-        return sequence_to_list(v);
-    }
-};
+struct to_object<simdjson::dom::array> : public sequence_to_object<simdjson::dom::array> {};
 
 template<>
 struct to_object<simdjson::dom::object> : public map_to_object<simdjson::dom::object> {};
@@ -55,8 +52,7 @@ struct to_object<simdjson::simdjson_result<T>> {
         simdjson::dom::element result;
         auto error = maybe_result.get(result);
         if (error) {
-            // throw
-            throw py::exception(PyExc_ValueError, "Issue with that parse");
+            throw py::exception(PyExc_ValueError, simdjson::error_message(error));
         }
         return py::to_object(result);
     }
@@ -84,9 +80,19 @@ public:
         return shared_from_this();
     }
 
-    py::owned_ref<> load(const std::string& filename);
+    py::owned_ref<> load(const std::filesystem::path& filename);
 
-    py::owned_ref<> loads(const std::string& in_string);
+    py::owned_ref<> loads(std::string_view in_string);
+
+    static py::owned_ref<> load_method(const std::shared_ptr<parser>& p,
+                                       const std::filesystem::path& filename) {
+        return p->load(filename);
+    }
+
+    static py::owned_ref<> loads_method(const std::shared_ptr<parser>& p,
+                                        std::string_view in_string) {
+        return p->loads(in_string);
+    }
 };
 
 class object_element {
@@ -154,7 +160,7 @@ public:
     // py::owned_ref<> count(py::borrowed_ref elem) {
     //     return std::count(m_value.begin(), m_value.end(), elem);
     // }
-    py::owned_ref<> operator[](const std::size_t& index);
+    py::owned_ref<> operator[](std::ptrdiff_t index);
 
     py::owned_ref<> as_list() {
         return py::to_object(m_value);
@@ -188,32 +194,30 @@ py::owned_ref<> disambiguate_result(std::shared_ptr<parser> parser_pntr,
     }
 }
 
-py::owned_ref<> parser::load(const std::string& filename) {
+py::owned_ref<> parser::load(const std::filesystem::path& filename) {
     if (weak_from_this().use_count() > 1) {
         throw py::exception(PyExc_ValueError,
                             "cannot reparse while live objects exist from a prior parse");
     }
-    auto maybe_result = m_parser.load(filename);
+    auto maybe_result = m_parser.load(filename.string());
     simdjson::dom::element result;
     auto error = maybe_result.get(result);
     if (error) {
-        // throw
-        throw py::exception(PyExc_ValueError, "Issue with that parse");
+        throw py::exception(PyExc_ValueError, simdjson::error_message(error));
     }
     return disambiguate_result(shared_from_this(), result);
 }
 
-py::owned_ref<> parser::loads(const std::string& in_string) {
+py::owned_ref<> parser::loads(std::string_view in_string) {
     if (weak_from_this().use_count() > 1) {
         throw py::exception(PyExc_ValueError,
                             "cannot reparse while live objects exist from a prior parse");
     }
-    auto maybe_result = m_parser.parse(in_string);
+    auto maybe_result = m_parser.parse(in_string.data(), in_string.size());
     simdjson::dom::element result;
     auto error = maybe_result.get(result);
     if (error) {
-        // throw
-        throw py::exception(PyExc_ValueError, "Issue with that parse");
+        throw py::exception(PyExc_ValueError, simdjson::error_message(error));
     }
     return disambiguate_result(shared_from_this(), result);
 }
@@ -227,7 +231,7 @@ py::owned_ref<> object_element::at(const std::string& json_pntr) {
     auto maybe_result = m_value.at(json_pntr);
     auto error = maybe_result.get(result);
     if (error) {
-        throw py::exception(PyExc_ValueError, "Could not get element at ", json_pntr);
+        throw py::exception(PyExc_KeyError, json_pntr);
     }
     return disambiguate_result(m_parser, result);
 }
@@ -237,22 +241,27 @@ py::owned_ref<> array_element::at(const std::string& json_pntr) {
     auto maybe_result = m_value.at(json_pntr);
     auto error = maybe_result.get(result);
     if (error) {
-        throw py::exception(PyExc_ValueError, "Could not get element at ", json_pntr);
+        throw py::exception(PyExc_IndexError, json_pntr);
     }
     return disambiguate_result(m_parser, result);
 }
 
-py::owned_ref<> array_element::operator[](const std::size_t& index) {
+py::owned_ref<> array_element::operator[](std::ptrdiff_t index) {
+    std::ptrdiff_t original_index = index;
+    if (index < 0) {
+        index += m_value.size();
+    }
+
     simdjson::dom::element result;
     auto maybe_result = m_value.at(index);
     auto error = maybe_result.get(result);
     if (error) {
-        throw py::exception(PyExc_ValueError, "Could not get element at ", index);
+        throw py::exception(PyExc_IndexError, original_index);
     }
     return disambiguate_result(m_parser, result);
 }
 
-py::owned_ref<> load(const std::string& filename) {
+py::owned_ref<> load(const std::filesystem::path& filename) {
     return std::make_shared<parser>()->load(filename);
 }
 
@@ -260,39 +269,32 @@ py::owned_ref<> loads(const std::string& in_string) {
     return std::make_shared<parser>()->loads(in_string);
 }
 
-using namespace std::string_literals;
-
 LIBPY_AUTOMODULE(libpy_simdjson,
-                 simdjson,
+                 parser,
                  ({py::autofunction<load>("load"), py::autofunction<loads>("loads")}))
 (py::borrowed_ref<> m) {
-    py::owned_ref a = py::autoclass<parser>(PyModule_GetName(m.get()) + ".Parser"s)
-                          .new_<>()
-                          .doc("Base parser")  // add a class docstring
-                          .def<&parser::load>("load")
-                          .def<&parser::loads>("loads")
-                          .type();
-    PyObject_SetAttrString(m.get(), "Parser", static_cast<PyObject*>(a));
-    py::owned_ref b = py::autoclass<object_element>(PyModule_GetName(m.get()) +
-                                                    ".Object"s)
-                          .mapping<std::string>()
-                          .def<&object_element::at>("at")
-                          .def<&object_element::as_dict>("as_dict")
-                          .def<&object_element::items>("items")
-                          .def<&object_element::keys>("keys")
-                          .len()
-                          .iter()
-                          .type();
-    PyObject_SetAttrString(m.get(), "Object", static_cast<PyObject*>(b));
-
-    py::owned_ref c = py::autoclass<array_element>(PyModule_GetName(m.get()) + ".Array"s)
-                          .def<&array_element::at>("at")
-                          .def<&array_element::as_list>("as_list")
-                          .mapping<std::size_t>()
-                          .len()
-                          .iter()
-                          .type();
-    PyObject_SetAttrString(m.get(), "Array", static_cast<PyObject*>(c));
+    py::autoclass<std::shared_ptr<parser>>(m, "Parser")
+        .new_<std::make_shared<parser>>()
+        .doc("Base parser")  // add a class docstring
+        .def<&parser::load_method>("load")
+        .def<&parser::loads_method>("loads")
+        .type();
+    py::autoclass<object_element>(m, "Object")
+        .mapping<std::string>()
+        .def<&object_element::at>("at")
+        .def<&object_element::as_dict>("as_dict")
+        .def<&object_element::keys>("keys")
+        .def<&object_element::items>("items")
+        .len()
+        .iter()
+        .type();
+    py::autoclass<array_element>(m, "Array")
+        .def<&array_element::at>("at")
+        .def<&array_element::as_list>("as_list")
+        .mapping<std::ptrdiff_t>()
+        .len()
+        .iter()
+        .type();
 
     return false;
 }
