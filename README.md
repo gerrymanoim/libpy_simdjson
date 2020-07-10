@@ -4,6 +4,12 @@
 
 Python bindings for [simdjson](https://github.com/simdjson/simdjson/) using [libpy](https://github.com/quantopian/libpy).
 
+## Requirements
+
+- OS: macOS>10.15, linux. 
+- Compiler: gcc>=9, clang >= 10 (C++17 code) 
+- Python: libpy>=0.2.3, numpy. 
+
 ## Usage
 
 ```python
