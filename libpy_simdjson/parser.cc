@@ -83,9 +83,9 @@ public:
         return shared_from_this();
     }
 
-    py::owned_ref<> load(std::string filename);
+    py::owned_ref<> load(const std::string& filename);
 
-    py::owned_ref<> loads(std::string in_string);
+    py::owned_ref<> loads(const std::string& in_string);
 };
 
 class object_element {
@@ -97,9 +97,9 @@ public:
     object_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::object value)
         : m_parser(parser_pntr), m_value(value) {}
 
-    py::owned_ref<> operator[](std::string field);
+    py::owned_ref<> operator[](const std::string& field);
 
-    py::owned_ref<> at(std::string json_pntr);
+    py::owned_ref<> at(const std::string& json_pntr);
 
     std::vector<std::string_view> keys() {
         std::vector<std::string_view> out;
@@ -140,12 +140,12 @@ public:
     array_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::array value)
         : m_parser(parser_pntr), m_value(value) {}
 
-    py::owned_ref<> at(std::string json_pntr);
+    py::owned_ref<> at(const std::string& json_pntr);
 
     // py::owned_ref<> count(py::borrowed_ref elem) {
     //     return std::count(m_value.begin(), m_value.end(), elem);
     // }
-    py::owned_ref<> operator[](std::size_t index);
+    py::owned_ref<> operator[](const std::size_t& index);
 
     py::owned_ref<> as_list() {
         return py::to_object(m_value);
@@ -179,7 +179,7 @@ py::owned_ref<> disambiguate_result(std::shared_ptr<parser> parser_pntr,
     }
 }
 
-py::owned_ref<> parser::load(std::string filename) {
+py::owned_ref<> parser::load(const std::string& filename) {
     if (weak_from_this().use_count() > 1) {
         throw py::exception(PyExc_ValueError,
                             "cannot reparse while live objects exist from a prior parse");
@@ -194,7 +194,7 @@ py::owned_ref<> parser::load(std::string filename) {
     return disambiguate_result(shared_from_this(), result);
 }
 
-py::owned_ref<> parser::loads(std::string in_string) {
+py::owned_ref<> parser::loads(const std::string& in_string) {
     if (weak_from_this().use_count() > 1) {
         throw py::exception(PyExc_ValueError,
                             "cannot reparse while live objects exist from a prior parse");
@@ -209,11 +209,11 @@ py::owned_ref<> parser::loads(std::string in_string) {
     return disambiguate_result(shared_from_this(), result);
 }
 
-py::owned_ref<> object_element::operator[](std::string field) {
+py::owned_ref<> object_element::operator[](const std::string& field) {
     return disambiguate_result(m_parser, m_value[field]);
 }
 
-py::owned_ref<> object_element::at(std::string json_pntr) {
+py::owned_ref<> object_element::at(const std::string& json_pntr) {
     simdjson::dom::element result;
     auto maybe_result = m_value.at(json_pntr);
     auto error = maybe_result.get(result);
@@ -223,7 +223,7 @@ py::owned_ref<> object_element::at(std::string json_pntr) {
     return disambiguate_result(m_parser, result);
 }
 
-py::owned_ref<> array_element::at(std::string json_pntr) {
+py::owned_ref<> array_element::at(const std::string& json_pntr) {
     simdjson::dom::element result;
     auto maybe_result = m_value.at(json_pntr);
     auto error = maybe_result.get(result);
@@ -233,7 +233,7 @@ py::owned_ref<> array_element::at(std::string json_pntr) {
     return disambiguate_result(m_parser, result);
 }
 
-py::owned_ref<> array_element::operator[](std::size_t index) {
+py::owned_ref<> array_element::operator[](const std::size_t& index) {
     simdjson::dom::element result;
     auto maybe_result = m_value.at(index);
     auto error = maybe_result.get(result);
@@ -243,11 +243,11 @@ py::owned_ref<> array_element::operator[](std::size_t index) {
     return disambiguate_result(m_parser, result);
 }
 
-py::owned_ref<> load(std::string filename) {
+py::owned_ref<> load(const std::string& filename) {
     return std::make_shared<parser>()->load(filename);
 }
 
-py::owned_ref<> loads(std::string in_string) {
+py::owned_ref<> loads(const std::string& in_string) {
     return std::make_shared<parser>()->loads(in_string);
 }
 

@@ -62,6 +62,7 @@ Out[4]: 39.9
    - [X] arrays
 - [ ] `count` for array
 - [ ] `index` for array
+- [ ] const everything that one might const
 - [ ] clean up exceptions
 - [ ] clean up code
 - [ ] fix names
