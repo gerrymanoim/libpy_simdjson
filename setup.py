@@ -40,6 +40,7 @@ setup(
     author="Gerry Manoim",
     packages=find_packages(),
     install_requires=install_requires,
+    extras_require=['pytest'],
     ext_modules=[
         extension(
             "libpy_simdjson.parser",

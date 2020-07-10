@@ -64,11 +64,12 @@ Out[4]: 39.9
 - [ ] `index` for array
 - [ ] const everything that one might const
 - [ ] clean up exceptions
-  - [ ] Change ValueError to IndexError for OOB Array indexing
+  - [X] Change ValueError to IndexError for OOB Array indexing
 - [ ] clean up code
 - [ ] fix names
 - [ ] fix directory structures
 - [ ] benchmarks
+- [ ] Other compilter flags?
 - [ ] tests/CI/publish
 - [ ] a real README
 - [ ] Package a release
