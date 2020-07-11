@@ -45,8 +45,7 @@ jobs:
     - name: Run benchmarks
       if: steps.check.outputs.triggered == 'true'
       run: |
-        cd ./libpy_simdjson/tests
-        pytest --runslow | tee benchmarks.txt
+        pytest | tee benchmarks.txt
     - uses: actions/upload-artifact@v2
       if: steps.check.outputs.triggered == 'true'
       with:
