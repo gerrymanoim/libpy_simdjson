@@ -255,7 +255,7 @@ statuses.at(b"33/created_at")
 - [ ] benchmarks
 - [ ] Other compilter flags?
 - [ ] tests/CI/publish
-- [ ] a real README
+- [X] a real README
 - [ ] Package a release
 - [ ] string padding?
 - [ ] extra functions
