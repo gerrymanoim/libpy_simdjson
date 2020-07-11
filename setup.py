@@ -18,8 +18,8 @@ else:
 
 def extension(*args, **kwargs):
     extra_compile_args = ["-DLIBPY_AUTOCLASS_UNSAFE_API"]
-    if sys.platform == 'darwin':
-        extra_compile_args.append('-mmacosx-version-min=10.15')
+    if sys.platform == "darwin":
+        extra_compile_args.append("-mmacosx-version-min=10.15")
 
     return LibpyExtension(
         *args,
@@ -46,7 +46,16 @@ setup(
     author="Gerry Manoim",
     packages=find_packages(),
     install_requires=install_requires,
-    extras_require={"test": ["pytest"]},
+    extras_require={
+        "test": ["pytest"],
+        "benchmark": [
+            "pytest-benchmark",
+            "orjson",
+            "python-rapidjson",
+            "pysimdjson",
+            "ujson",
+        ],
+    },
     ext_modules=[
         extension(
             "libpy_simdjson.parser",
