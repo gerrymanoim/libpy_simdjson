@@ -304,12 +304,11 @@ Legend:
 
 - [X] iterators
    - [X] object
-     - [ ] Note iterator for object is really `object.items()` which does not match python. todo to fix.
    - [X] arrays
    - Note: Right now when iterate we convert everything automatically to python objects. Should we be smarter? Or is that not expected?
    - [X] as dict methods for objects
 - [X] keys methods for objects
-- [ ] values methods for objects
+- [x] values methods for objects
 - [X] len methods
    - [X] objects
    - [X] arrays
