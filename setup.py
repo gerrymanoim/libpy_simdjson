@@ -27,7 +27,10 @@ def extension(*args, **kwargs):
         debug_symbols=debug_symbols,
         werror=True,
         max_errors=max_errors,
-        include_dirs=["."] + kwargs.pop("include_dirs", []),
+        include_dirs=(
+            [".", "submodules/range-v3/include/"] +
+            kwargs.pop("include_dirs", [])
+        ),
         extra_compile_args=extra_compile_args,
         depends=glob.glob("**/*.h", recursive=True),
         **kwargs
