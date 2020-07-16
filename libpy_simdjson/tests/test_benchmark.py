@@ -1,3 +1,5 @@
+import random
+
 from json import loads as json_loads
 from pathlib import Path
 
@@ -42,3 +44,39 @@ def test_benchmark_load(group, func, path, benchmark):
     with path.open('rb') as f:
         content = f.read()
         benchmark(func, content)
+
+
+@pytest.mark.parametrize(
+    ["group", "read_func"],
+    [
+        ("python_json", json_loads),
+        ("libpy_simdjson", libpy_simdjson_loads),
+    ],
+)
+def test_benchmark_at(group, read_func, benchmark):
+    benchmark.group = "Random attribute access"
+    benchmark.extra_info["group"] = group
+
+    random.seed(999)
+
+    def simd_test_func(doc):
+        selection = random.randrange(100)
+        at_str = f"statuses/{selection}/user/id".encode()
+        doc.at(at_str)
+
+    def py_test_func(doc):
+        selection = random.randrange(100)
+        doc["statuses"][selection]["user"]["id"]
+
+    if group == "libpy_simdjson":
+        bench_func = simd_test_func
+    elif group == "python_json":
+        bench_func = py_test_func
+    else:
+        raise ValueError("unknown group for direct access test")
+
+    json_doc = JSON_FIXTURES_DIR / "twitter.json"
+    with json_doc.open('rb') as f:
+        content = f.read()
+        doc = read_func(content)
+        benchmark(bench_func, doc)
