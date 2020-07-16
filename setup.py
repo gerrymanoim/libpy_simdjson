@@ -46,6 +46,7 @@ setup(
     version="0.1.0",
     description="Python bindings for smidjson, using libpy",
     long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
     url="https://github.com/gerrymanoim/libpy_simdjson",
     author="Gerry Manoim, Joe Jevnik",
     author_email=(
