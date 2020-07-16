@@ -1,4 +1,4 @@
-# libpy simdjson 
+# libpy simdjson
 
 ![On Master Merge](https://github.com/gerrymanoim/libpy_simdjson/workflows/On%20Master%20Merge/badge.svg)
 
@@ -236,9 +236,11 @@ statuses.at(b"33/created_at")
 
 ## Benchmarks
 
-**Note** - unlike most other python JSON parsers, `libpy_simdjson` will, by design, avoid converting to native python types until as late as possible, providing you with `Object` and `Array` objects instead. `libpy` allows you to work with these proxy objects as if they were actual python objects without incurring the cost of object conversion until actually needed. Because the C++ `simdjson` library is so effficient, converting to Python objects is by far the slowest part of parsing, so we strive to do this as late and on as few fields as possible. 
+**Note** - unlike most other python JSON parsers, `libpy_simdjson` will, by design, avoid converting to native python types until as late as possible, providing you with `Object` and `Array` objects instead. `libpy` allows you to work with these proxy objects as if they were actual python objects without incurring the cost of object conversion until actually needed. Because the C++ `simdjson` library is so effficient, converting to Python objects is by far the slowest part of parsing, so we strive to do this as late and on as few fields as possible.
 
 See the (still WIP) "overhead over python dict access" benchmarks for object conversion overhead.
+
+For the sake of comparison, we also benchmark a full Python object conversion in `libpy_simdjson_as_py_obj` though this is very much not the intended use case.
 
 
 ```

@@ -11,8 +11,18 @@ from rapidjson import loads as rapidjson_loads
 from simdjson import loads as pysimdjson_loads
 from libpy_simdjson import loads as libpy_simdjson_loads
 
+from libpy_simdjson import Array
+
 
 JSON_FIXTURES_DIR = Path(__file__).parent / "jsonexamples"
+
+
+def libpy_simdjson_as_py_obj(input):
+    doc = libpy_simdjson_loads(input)
+    if isinstance(doc, Array):
+        doc.as_list()
+    else:
+        doc.as_dict()
 
 
 @pytest.mark.slow
@@ -25,6 +35,7 @@ JSON_FIXTURES_DIR = Path(__file__).parent / "jsonexamples"
         ("rapidjson", rapidjson_loads),
         ("python_json", json_loads),
         ("libpy_simdjson", libpy_simdjson_loads),
+        ("libpy_simdjson_as_py_obj", libpy_simdjson_as_py_obj),
     ],
 )
 @pytest.mark.parametrize(
