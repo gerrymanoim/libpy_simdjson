@@ -60,10 +60,10 @@ jobs:
       run: |
         echo ::set-env name=CC::gcc-9
         echo ::set-env name=CXX::g++-9
-    # - name: Build and install from an sdist
-    #   run: |
-    #     python setup.py sdist
-    #     pip install dist/libpy-*.tar.gz
+    - name: Build and install from an sdist
+      run: |
+        python setup.py sdist
+        pip install dist/libpy-*.tar.gz
     - name: Install python dependencies
       env:
         PYTHONWARNINGS: ignore:DEPRECATION::pip._internal.cli.base_command
