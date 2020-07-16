@@ -1,6 +1,6 @@
-# libpy Simdjson
+# libpy simdjson 
 
-**Status**: Working Alpha
+![On Master Merge](https://github.com/gerrymanoim/libpy_simdjson/workflows/On%20Master%20Merge/badge.svg)
 
 Python bindings for [simdjson](https://github.com/simdjson/simdjson/) using [libpy](https://github.com/quantopian/libpy).
 
@@ -9,6 +9,10 @@ Python bindings for [simdjson](https://github.com/simdjson/simdjson/) using [lib
 - OS: macOS>10.15, linux.
 - Compiler: gcc>=9, clang >= 10 (C++17 code)
 - Python: libpy>=0.2.3, numpy.
+
+## Install
+
+`pip install libpy-simdjson`
 
 ## Usage
 
