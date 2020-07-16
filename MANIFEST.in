@@ -1,0 +1,6 @@
+# buildtime data
+graft submodules/range-v3/include/
+include libpy_simdjson/simdjson.h
+
+# runtime data
+include LICENSE

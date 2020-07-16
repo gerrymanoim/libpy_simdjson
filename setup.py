@@ -28,8 +28,7 @@ def extension(*args, **kwargs):
         werror=True,
         max_errors=max_errors,
         include_dirs=(
-            [".", "submodules/range-v3/include/"] +
-            kwargs.pop("include_dirs", [])
+            [".", "submodules/range-v3/include/"] + kwargs.pop("include_dirs", [])
         ),
         extra_compile_args=extra_compile_args,
         depends=glob.glob("**/*.h", recursive=True),
@@ -46,8 +45,32 @@ setup(
     name="libpy_simdjson",
     version="0.1.0",
     description="Python bindings for smidjson, using libpy",
-    author="Gerry Manoim",
+    long_description=open("README.md").read(),
+    url="https://github.com/gerrymanoim/libpy_simdjson",
+    author="Gerry Manoim, Joe Jevnik",
+    author_email=(
+        "Gerry Manoim <gerrymanoim@gmail.com>, Joe Jevnik <joejev@gmail.com>"
+    ),
     packages=find_packages(),
+    license="Apache 2.0",
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "License :: OSI Approved :: Apache Software License",
+        "Natural Language :: English",
+        "Topic :: Software Development",
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: Implementation :: CPython",
+        "Programming Language :: C++",
+        "Operating System :: POSIX",
+        "Intended Audience :: Developers",
+    ],
+    # we need the headers to be available to the C compiler as regular files;
+    # we cannot be imported from a ziparchive.
+    zip_safe=False,
     install_requires=install_requires,
     extras_require={
         "test": ["pytest"],
