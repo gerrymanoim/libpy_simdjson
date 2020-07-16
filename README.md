@@ -14,6 +14,9 @@ Python bindings for [simdjson](https://github.com/simdjson/simdjson/) using [lib
 
 `pip install libpy-simdjson`
 
+**Note**: The installation of `libpy` (required by `libpy_simdjson`) will use the `python` executable to figure out information about your environment. If you are not using a virtual environment or `python` does not point to the Python installation you want to use (checked with `which python` and `python --version`) you must point to your Python executable using the `PYTHON` environment variable, i.e. `PYTHON=python3 make` or `PYTHON=python3 pip3 install libpy`. Additionally, make sure that your `CC` and `CXX` environment variables point to the correct compilers.
+
+
 ## Usage
 
 ```python
