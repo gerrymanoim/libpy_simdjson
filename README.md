@@ -236,6 +236,11 @@ statuses.at(b"33/created_at")
 
 ## Benchmarks
 
+**Note** - unlike most other python JSON parsers, `libpy_simdjson` will, by design, avoid converting to native python types until as late as possible, providing you with `Object` and `Array` objects instead. `libpy` allows you to work with these proxy objects as if they were actual python objects without incurring the cost of object conversion until actually needed. Because the C++ `simdjson` library is so effficient, converting to Python objects is by far the slowest part of parsing, so we strive to do this as late and on as few fields as possible. 
+
+See the (still WIP) "overhead over python dict access" benchmarks for object conversion overhead.
+
+
 ```
 
 ---------------------------------------------- benchmark 'Load /home/runner/work/libpy_simdjson/libpy_simdjson/libpy_simdjson/tests/jsonexamples/canada.json': 6 tests ----------------------------------------------
