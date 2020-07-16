@@ -1,5 +1,3 @@
-import pytest
-
 import libpy_simdjson as simdjson
 
 
@@ -8,7 +6,7 @@ def test_as_dict(object_element, py_object_element):
     assert actual_dict == py_object_element
 
 
-def test_keys(object_element):
+def test_keys(object_element, py_object_element):
     keys = object_element.keys()
     assert keys == [
         b"Width",
@@ -20,13 +18,26 @@ def test_keys(object_element):
         b"array",
         b"Owner",
     ]
+    assert set(object_element.keys()) == set(py_object_element.keys())
+
+
+def test_values(object_element, py_object_element):
+    values = object_element.values()
+    for n, k in enumerate(object_element):
+        expected = object_element[k]
+        if isinstance(expected, simdjson.Object):
+            expected = expected.as_dict()
+        elif isinstance(expected, simdjson.Array):
+            expected = expected.as_list()
+
+        assert values[n] == expected
+        assert values[n] == py_object_element[k]
 
 
 def test_len(object_element):
     assert len(object_element) == 8
 
 
-@pytest.mark.xfail(reason="Need to implement this properly later")
 def test_iteration(object_element, py_object_element):
     for cpp, py in zip(object_element, py_object_element):
         assert cpp == py

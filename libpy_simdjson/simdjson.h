@@ -4539,10 +4539,12 @@ public:
 
   class iterator {
   public:
+    using value_type = key_value_pair;
+
     /**
      * Get the actual key/value pair
      */
-    inline const key_value_pair operator*() const noexcept;
+    inline const value_type operator*() const noexcept;
     /**
      * Get the next key/value pair.
      *
@@ -4550,12 +4552,20 @@ public:
      *
      */
     inline iterator& operator++() noexcept;
+    inline iterator operator++(int) noexcept {
+        iterator out = *this;
+        ++*this;
+        return out;
+    }
     /**
      * Check if these key value pairs come from the same place in the JSON.
      *
      * Part of the std::iterator interface.
      */
     inline bool operator!=(const iterator& other) const noexcept;
+      inline bool operator==(const iterator& other) const noexcept {
+          return !(*this != other);
+      }
     /**
      * Get the key of this key/value pair.
      */
@@ -4584,6 +4594,12 @@ public:
      * Get the value of this key/value pair.
      */
     inline element value() const noexcept;
+
+    inline iterator(const iterator& other) = default;
+    inline iterator& operator=(const iterator& other) = default;
+    inline iterator() = default;
+
+    using difference_type = std::ptrdiff_t;
   private:
     really_inline iterator(const internal::tape_ref &tape) noexcept;
 

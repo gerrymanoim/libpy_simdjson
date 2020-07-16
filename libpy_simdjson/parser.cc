@@ -8,6 +8,7 @@
 #include <libpy/automodule.h>
 #include <libpy/build_tuple.h>
 #include <libpy/to_object.h>
+#include <range/v3/all.hpp>
 
 #include "simdjson.h"
 
@@ -108,40 +109,42 @@ public:
 
     py::owned_ref<> at(const std::string& json_pntr);
 
-    std::vector<py::owned_ref<>> items() {
-        std::vector<py::owned_ref<>> out;
-        for (auto [key, value] : m_value) {
-            out.push_back(py::build_tuple(key, value));
-        }
-        return out;
+    py::owned_ref<> items() const {
+        return py::dispatch::sequence_to_object<simdjson::dom::object>::f(m_value);
     }
 
-    std::vector<std::string_view> keys() {
-        std::vector<std::string_view> out;
-        for (auto [key, value] : m_value) {
-            out.push_back(key);
-        }
-        return out;
+private:
+    auto keys_range() const {
+        return m_value |
+               ranges::views::transform([](const auto& item) { return item.key; });
     }
 
-    py::owned_ref<> values();
+public:
+    py::owned_ref<> keys() const {
+        auto keys = keys_range();
+        return py::dispatch::sequence_to_object<decltype(keys)>::f(keys);
+    }
 
-    py::owned_ref<> as_dict() {
+    py::owned_ref<> values() const {
+        auto values = m_value | ranges::views::transform(
+                                    [](const auto& item) { return item.value; });
+        return py::dispatch::sequence_to_object<decltype(values)>::f(values);
+    }
+
+    py::owned_ref<> as_dict() const {
         return py::to_object(m_value);
     }
 
-    std::size_t size() {
+    std::size_t size() const {
         return m_value.size();
     }
 
-    typedef simdjson::dom::object::iterator iterator;
-
-    iterator begin() {
-        return m_value.begin();
+    auto begin() const {
+        return keys_range().begin();
     }
 
-    iterator end() {
-        return m_value.end();
+    auto end() const {
+        return keys_range().end();
     }
 
 };
@@ -284,6 +287,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
         .def<&object_element::at>("at")
         .def<&object_element::as_dict>("as_dict")
         .def<&object_element::keys>("keys")
+        .def<&object_element::values>("values")
         .def<&object_element::items>("items")
         .len()
         .iter()

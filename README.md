@@ -6,9 +6,9 @@ Python bindings for [simdjson](https://github.com/simdjson/simdjson/) using [lib
 
 ## Requirements
 
-- OS: macOS>10.15, linux. 
-- Compiler: gcc>=9, clang >= 10 (C++17 code) 
-- Python: libpy>=0.2.3, numpy. 
+- OS: macOS>10.15, linux.
+- Compiler: gcc>=9, clang >= 10 (C++17 code)
+- Python: libpy>=0.2.3, numpy.
 
 ## Usage
 
@@ -22,10 +22,10 @@ import libpy_simdjson as json
 doc = json.load(Path("twitter.json"))
 # or json.load(b"twitter.json")
 # or json.load("twitter.json")
-# we also support `loads` for strings. 
+# we also support `loads` for strings.
 ```
 
-`doc` is an `Object`. Objects act as python dicts with special methods. 
+`doc` is an `Object`. Objects act as python dicts with special methods.
 
 
 ```python
@@ -195,8 +195,8 @@ else:
     print("no even ids?")
 ```
 
-    @aym0566x 
-    
+    @aym0566x
+
     名前:前田あゆみ
     第一印象:なんか怖っ！
     今の印象:とりあえずキモい。噛み合わない
@@ -304,12 +304,11 @@ Legend:
 
 - [X] iterators
    - [X] object
-     - [ ] Note iterator for object is really `object.items()` which does not match python. todo to fix.
    - [X] arrays
    - Note: Right now when iterate we convert everything automatically to python objects. Should we be smarter? Or is that not expected?
    - [X] as dict methods for objects
 - [X] keys methods for objects
-- [ ] values methods for objects
+- [x] values methods for objects
 - [X] len methods
    - [X] objects
    - [X] arrays
