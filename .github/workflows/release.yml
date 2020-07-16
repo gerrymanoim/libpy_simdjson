@@ -2,11 +2,12 @@ name: Publish Python 🐍 distributions 📦 to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   build-n-publish:
     name: Build and publish Python 🐍 distributions 📦 to TestPyPI
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
       with:
@@ -15,19 +16,16 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: 3.8
+    - name: Set gcc envvars
+      run: |
+        echo ::set-env name=CC::gcc-9
+        echo ::set-env name=CXX::g++-9
     - name: Install python dependencies
       env:
         PYTHONWARNINGS: ignore:DEPRECATION::pip._internal.cli.base_command
       run: |
         python -m pip install --upgrade pip
         pip install libpy numpy
-    - name: Install c++ dependencies (ubuntu)
-      run: |
-        sudo apt-get -y install libsparsehash-dev doxygen
-    - name: Set gcc envvars
-      run: |
-        echo ::set-env name=CC::gcc-9
-        echo ::set-env name=CXX::g++-9
     - name: Build sdist
       run: python setup.py sdist
 
@@ -41,7 +39,7 @@ jobs:
     - name: Install from test and test running
       run: |
         pip install --extra-index-url https://test.pypi.org/simple libpy_simdjson
-        mkdir tmp && cd tmp && python -c 'import libpy;print(libpy.__version__)'
+        mkdir tmp && cd tmp && python -c 'import libpy_simdjson'
         pip uninstall -y libpy_simdjson
         cd ..
 
@@ -53,17 +51,18 @@ jobs:
 
     - name: Install and test running
       run: |
+        sleep 10
         pip install libpy_simdjson
-        cd tmp && python -c 'import libpy_simdjson;print(libpy_simdjson.__version__)'
+        cd tmp && python -c 'import libpy_simdjson'
         cd ..
 
-    - name: Build the docs
-      run: |
-        pip install sphinx sphinx_rtd_theme breathe ipython
-        make docs
+    # - name: Build the docs
+    #   run: |
+    #     pip install sphinx sphinx_rtd_theme breathe ipython
+    #     make docs
 
-    - name: Deploy the docs
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./docs/build/html
+    # - name: Deploy the docs
+    #   uses: peaceiris/actions-gh-pages@v3
+    #   with:
+    #     github_token: ${{ secrets.GITHUB_TOKEN }}
+    #     publish_dir: ./docs/build/html
