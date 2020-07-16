@@ -298,39 +298,3 @@ Legend:
   OPS: Operations Per Second, computed as 1 / Mean
 ================== 71 passed, 1 xfailed, 1 warning in 29.65s ===================
 ```
-
-
-## TODO
-
-- [X] iterators
-   - [X] object
-   - [X] arrays
-   - Note: Right now when iterate we convert everything automatically to python objects. Should we be smarter? Or is that not expected?
-   - [X] as dict methods for objects
-- [X] keys methods for objects
-- [x] values methods for objects
-- [X] len methods
-   - [X] objects
-   - [X] arrays
-- [ ] `count` for array
-- [ ] `index` for array
-- [ ] const everything that one might const
-- [ ] clean up exceptions
-  - [X] Change ValueError to IndexError for OOB Array indexing
-- [ ] clean up code
-- [ ] fix names
-- [ ] fix directory structures
-- [ ] benchmarks
-- [ ] Other compilter flags?
-- [ ] tests/CI/publish
-- [X] a real README
-- [ ] Package a release
-- [ ] string padding?
-- [ ] extra functions
-   - [ ] validate_utf8
-   - [ ] load_many/parse_many
-   - [ ] load_many/parse_many with threads?
-   - [ ] case insensitive at?
-- [ ] Add reprs to Object and Array
-- [ ] Support negative indexing in Array
-- [ ] Expose versions of libpy_simdjson and simdjson
