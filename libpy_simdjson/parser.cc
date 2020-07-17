@@ -15,7 +15,8 @@
 namespace py::dispatch {
 
 template<>
-struct to_object<simdjson::dom::array> : public sequence_to_object<simdjson::dom::array> {};
+struct to_object<simdjson::dom::array> : public sequence_to_object<simdjson::dom::array> {
+};
 
 template<>
 struct to_object<simdjson::dom::object> : public map_to_object<simdjson::dom::object> {};
@@ -146,7 +147,6 @@ public:
     auto end() const {
         return keys_range().end();
     }
-
 };
 
 class array_element {
@@ -272,9 +272,15 @@ py::owned_ref<> loads(const std::string& in_string) {
     return std::make_shared<parser>()->loads(in_string);
 }
 
+py::owned_ref<> __simdjson_version__() {
+    return py::to_object(STRINGIFY(SIMDJSON_VERSION));
+}
+
 LIBPY_AUTOMODULE(libpy_simdjson,
                  parser,
-                 ({py::autofunction<load>("load"), py::autofunction<loads>("loads")}))
+                 ({py::autofunction<load>("load"),
+                   py::autofunction<loads>("loads"),
+                   py::autofunction<__simdjson_version__>("__simdjson_version__")}))
 (py::borrowed_ref<> m) {
     py::autoclass<std::shared_ptr<parser>>(m, "Parser")
         .new_<std::make_shared<parser>>()

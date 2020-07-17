@@ -80,6 +80,7 @@ setup(
             "orjson",
             "python-rapidjson",
             "pysimdjson",
+            "pybind11", # used by pysimdjson if wheels do not exist
             "ujson",
         ],
     },
