@@ -1,4 +1,4 @@
-/* auto-generated on Tue 30 Jun 2020 09:41:13 EDT. Do not edit! */
+/* auto-generated on Fri Jul 17 14:52:28 EDT 2020. Do not edit! */
 /* begin file include/simdjson.h */
 #ifndef SIMDJSON_H
 #define SIMDJSON_H
@@ -67,7 +67,7 @@
  * We want to differentiate carefully between
  * clang under visual studio and regular visual
  * studio.
- * 
+ *
  * Under clang for Windows, we enable:
  *  * target pragmas so that part and only part of the
  *     code gets compiled for advanced instructions.
@@ -94,7 +94,7 @@
 #define SIMDJSON_IS_X86_64 1
 #elif defined(__aarch64__) || defined(_M_ARM64)
 #define SIMDJSON_IS_ARM64 1
-#else 
+#else
 #define SIMDJSON_IS_32BITS 1
 
 // We do not support 32-bit platforms, but it can be
@@ -135,12 +135,12 @@ use a 64-bit target such as x64 or 64-bit ARM.")
 
 // Our fast kernels require 64-bit systems.
 //
-// On 32-bit x86, we lack 64-bit popcnt, lzcnt, blsr instructions. 
-// Furthermore, the number of SIMD registers is reduced. 
+// On 32-bit x86, we lack 64-bit popcnt, lzcnt, blsr instructions.
+// Furthermore, the number of SIMD registers is reduced.
 //
 // On 32-bit ARM, we would have smaller registers.
 //
-// The simdjson users should still have the fallback kernel. It is 
+// The simdjson users should still have the fallback kernel. It is
 // slower, but it should run everywhere.
 #if SIMDJSON_IS_X86_64
 #ifndef SIMDJSON_IMPLEMENTATION_HASWELL
@@ -373,7 +373,7 @@ constexpr size_t DEFAULT_MAX_DEPTH = 1024;
   #define SIMDJSON_DISABLE_VS_WARNING(WARNING_NUMBER) __pragma(warning( disable : WARNING_NUMBER ))
   // Get rid of Intellisense-only warnings (Code Analysis)
   // Though __has_include is C++17, it is supported in Visual Studio 2017 or better (_MSC_VER>=1910).
-  #if defined(_MSC_VER) && (_MSC_VER>=1910) 
+  #if defined(_MSC_VER) && (_MSC_VER>=1910)
   #if __has_include(<CppCoreCheck\Warnings.h>)
   #include <CppCoreCheck\Warnings.h>
   #define SIMDJSON_DISABLE_UNDESIRED_WARNINGS SIMDJSON_DISABLE_VS_WARNING(ALL_CPPCORECHECK_WARNINGS)
@@ -2040,7 +2040,7 @@ SIMDJSON_DISABLE_UNDESIRED_WARNINGS
 #define SIMDJSON_SIMDJSON_VERSION_H
 
 /** The version of simdjson being used (major.minor.revision) */
-#define SIMDJSON_VERSION 0.4.4
+#define SIMDJSON_VERSION 0.4.7
 
 namespace simdjson {
 enum {
@@ -2055,7 +2055,7 @@ enum {
   /**
    * The revision (major.minor.REVISION) of simdjson being used.
    */
-  SIMDJSON_VERSION_REVISION = 4
+  SIMDJSON_VERSION_REVISION = 7
 };
 } // namespace simdjson
 
@@ -2500,7 +2500,7 @@ public:
    * @private For internal implementation use
    *
    * Run a full JSON parse on a single document (stage1 + stage2).
-   * 
+   *
    * Guaranteed only to be called when capacity > document length.
    *
    * Overridden by each implementation.
@@ -2515,7 +2515,7 @@ public:
    * @private For internal implementation use
    *
    * Stage 1 of the document parser.
-   * 
+   *
    * Guaranteed only to be called when capacity > document length.
    *
    * Overridden by each implementation.
@@ -2531,7 +2531,7 @@ public:
    * @private For internal implementation use
    *
    * Stage 2 of the document parser.
-   * 
+   *
    * Called after stage1().
    *
    * Overridden by each implementation.
@@ -2556,7 +2556,7 @@ public:
 
   /**
    * Change the capacity of this parser.
-   * 
+   *
    * Generally used for reallocation.
    *
    * @param capacity The new capacity.
@@ -2763,9 +2763,9 @@ public:
    * @return the error code, or SUCCESS if there was no error.
    */
   WARN_UNUSED virtual error_code minify(const uint8_t *buf, size_t len, uint8_t *dst, size_t &dst_len) const noexcept = 0;
-  
-  
-  /**   
+
+
+  /**
    * Validate the UTF-8 string.
    *
    * Overridden by each implementation.
@@ -3133,7 +3133,7 @@ public:
   /**
    * Get the value at the given index. This function has linear-time complexity and
    * is equivalent to the following:
-   * 
+   *
    *    size_t i=0;
    *    for (auto element : *this) {
    *      if (i == index) { return element; }
@@ -3142,7 +3142,7 @@ public:
    *    return INDEX_OUT_OF_BOUNDS;
    *
    * Avoid calling the at() function repeatedly.
-   * 
+   *
    * @return The value at the given index, or:
    *         - INDEX_OUT_OF_BOUNDS if the array index is larger than an array length
    */
@@ -3443,7 +3443,7 @@ public:
    * documents that consist of an object or array may omit the whitespace between them, concatenating
    * with no separator. documents that consist of a single primitive (i.e. documents that are not
    * arrays or objects) MUST be separated with whitespace.
-   * 
+   *
    * The documents must not exceed batch_size bytes (by default 1MB) or they will fail to parse.
    * Setting batch_size to excessively large or excesively small values may impact negatively the
    * performance.
@@ -3476,7 +3476,7 @@ public:
    * If the parser's current capacity is less than batch_size, it will allocate enough capacity
    * to handle it (up to max_capacity).
    *
-   * @param path File name pointing at the concatenated JSON to parse. 
+   * @param path File name pointing at the concatenated JSON to parse.
    * @param batch_size The batch size to use. MUST be larger than the largest document. The sweet
    *                   spot is cache-related: small enough to fit in cache, yet big enough to
    *                   parse as many documents as possible in one tight loop.
@@ -3507,7 +3507,7 @@ public:
    * documents that consist of an object or array may omit the whitespace between them, concatenating
    * with no separator. documents that consist of a single primitive (i.e. documents that are not
    * arrays or objects) MUST be separated with whitespace.
-   * 
+   *
    * The documents must not exceed batch_size bytes (by default 1MB) or they will fail to parse.
    * Setting batch_size to excessively large or excesively small values may impact negatively the
    * performance.
@@ -3735,13 +3735,13 @@ struct stage1_worker {
   stage1_worker(stage1_worker&&) = delete;
   stage1_worker operator=(const stage1_worker&) = delete;
   ~stage1_worker();
-  /** 
+  /**
    * We only start the thread when it is needed, not at object construction, this may throw.
-   * You should only call this once. 
+   * You should only call this once.
    **/
   void start_thread();
-  /** 
-   * Start a stage 1 job. You should first call 'run', then 'finish'. 
+  /**
+   * Start a stage 1 job. You should first call 'run', then 'finish'.
    * You must call start_thread once before.
    */
   void run(document_stream * ds, dom::parser * stage1, size_t next_batch_start);
@@ -3750,10 +3750,10 @@ struct stage1_worker {
 
 private:
 
-  /** 
+  /**
    * Normally, we would never stop the thread. But we do in the destructor.
-   * This function is only safe assuming that you are not waiting for results. You 
-   * should have called run, then finish, and be done. 
+   * This function is only safe assuming that you are not waiting for results. You
+   * should have called run, then finish, and be done.
    **/
   void stop_thread();
 
@@ -3762,8 +3762,8 @@ private:
   dom::parser * stage1_thread_parser{};
   size_t _next_batch_start{};
   document_stream * owner{};
-  /** 
-   * We have two state variables. This could be streamlined to one variable in the future but 
+  /**
+   * We have two state variables. This could be streamlined to one variable in the future but
    * we use two for clarity.
    */
   bool has_work{false};
@@ -3821,7 +3821,7 @@ public:
     really_inline bool operator!=(const iterator &other) const noexcept;
     /**
      * @private
-     * 
+     *
      * Gives the current index in the input document in bytes.
      *
      *   document_stream stream = parser.parse_many(json,window);
@@ -3829,10 +3829,10 @@ public:
      *      auto doc = *i;
      *      size_t index = i.current_index();
      *   }
-     * 
+     *
      * This function (current_index()) is experimental and the usage
      * may change in future versions of simdjson: we find the API somewhat
-     * awkward and we would like to offer something friendlier.  
+     * awkward and we would like to offer something friendlier.
      */
      really_inline size_t current_index() noexcept;
   private:
@@ -4034,14 +4034,14 @@ public:
    */
   inline simdjson_result<object> get_object() const noexcept;
   /**
-   * Cast this element to a null-terminated C string. 
-   * 
+   * Cast this element to a null-terminated C string.
+   *
    * The string is guaranteed to be valid UTF-8.
    *
    * The get_c_str() function is equivalent to get<const char *>().
-   * 
+   *
    * The length of the string is given by get_string_length(). Because JSON strings
-   * may contain null characters, it may be incorrect to use strlen to determine the 
+   * may contain null characters, it may be incorrect to use strlen to determine the
    * string length.
    *
    * It is possible to get a single string_view instance which represents both the string
@@ -4054,7 +4054,7 @@ public:
   inline simdjson_result<const char *> get_c_str() const noexcept;
   /**
    * Gives the length in bytes of the string.
-   * 
+   *
    * It is possible to get a single string_view instance which represents both the string
    * content and its length: see get_string().
    *
@@ -4063,8 +4063,8 @@ public:
    */
   inline simdjson_result<size_t> get_string_length() const noexcept;
   /**
-   * Cast this element to a string. 
-   * 
+   * Cast this element to a string.
+   *
    * The string is guaranteed to be valid UTF-8.
    *
    * Equivalent to get<std::string_view>().
@@ -4247,7 +4247,7 @@ public:
 
   /**
    * Read this element as a null-terminated UTF-8 string.
-   * 
+   *
    * Be mindful that JSON allows strings to contain null characters.
    *
    * Does *not* convert other types to a string; requires that the JSON type of the element was
@@ -4563,9 +4563,9 @@ public:
      * Part of the std::iterator interface.
      */
     inline bool operator!=(const iterator& other) const noexcept;
-      inline bool operator==(const iterator& other) const noexcept {
-          return !(*this != other);
-      }
+    inline bool operator==(const iterator& other) const noexcept {
+        return !(*this != other);
+    }
     /**
      * Get the key of this key/value pair.
      */
@@ -4600,6 +4600,7 @@ public:
     inline iterator() = default;
 
     using difference_type = std::ptrdiff_t;
+
   private:
     really_inline iterator(const internal::tape_ref &tape) noexcept;
 
@@ -7435,7 +7436,7 @@ really_inline parser::parser(size_t max_capacity) noexcept
   : _max_capacity{max_capacity},
     loaded_bytes(nullptr) {
 }
-#else 
+#else
 really_inline parser::parser(size_t max_capacity) noexcept
   : _max_capacity{max_capacity},
     loaded_bytes(nullptr, &aligned_free_char) {
