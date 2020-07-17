@@ -79,8 +79,8 @@ setup(
             "pytest-benchmark",
             "orjson",
             "python-rapidjson",
+            "pybind11",  # used by pysimdjson if wheels do not exist
             "pysimdjson",
-            "pybind11", # used by pysimdjson if wheels do not exist
             "ujson",
         ],
     },
