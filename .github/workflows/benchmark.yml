@@ -38,7 +38,7 @@ jobs:
         PYTHONWARNINGS: ignore:DEPRECATION::pip._internal.cli.base_command
       run: |
         python -m pip install --upgrade pip
-        pip install numpy libpy
+        pip install numpy libpy pybind11
     - name: Install
       if: steps.check.outputs.triggered == 'true'
       run: |
