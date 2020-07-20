@@ -9,7 +9,7 @@ from orjson import loads as orjson_loads
 from ujson import loads as ujson_loads
 from rapidjson import loads as rapidjson_loads
 from simdjson import loads as pysimdjson_loads
-from simdjson import parse as pysimdjson_parse
+from simdjson import Parser
 from libpy_simdjson import loads as libpy_simdjson_loads
 
 from libpy_simdjson import Array
@@ -26,12 +26,15 @@ def libpy_simdjson_as_py_obj(input):
         doc.as_dict()
 
 
+pysimdjson_parser = Parser()
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(
     ["group", "func"],
     [
         ("pysimdjson_as_py_obj", pysimdjson_loads),
-        ("pysimdjson", pysimdjson_parse),
+        ("pysimdjson", pysimdjson_parser.parse),
         ("orjson", orjson_loads),
         ("ujson", ujson_loads),
         ("rapidjson", rapidjson_loads),
