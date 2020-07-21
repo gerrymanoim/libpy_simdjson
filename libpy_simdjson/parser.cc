@@ -314,24 +314,27 @@ public:
             return 0;
         }
 
+        if (needle.get() == Py_None) {
+            return count_null();
+        }
+
         switch ((*begin()).type()) {
         case simdjson::dom::element_type::INT64:
-            return try_specialized<simdjson::dom::element_type::INT64, std::int64_t>(needle);
+            return try_specialized<simdjson::dom::element_type::INT64, std::int64_t>(
+                needle);
         case simdjson::dom::element_type::UINT64:
-            return try_specialized<simdjson::dom::element_type::UINT64, std::uint64_t>(needle);
+            return try_specialized<simdjson::dom::element_type::UINT64, std::uint64_t>(
+                needle);
         case simdjson::dom::element_type::DOUBLE:
             return try_specialized<simdjson::dom::element_type::DOUBLE, double>(needle);
         case simdjson::dom::element_type::STRING:
-            return try_specialized<simdjson::dom::element_type::STRING, std::string_view>(needle);
+            return try_specialized<simdjson::dom::element_type::STRING, std::string_view>(
+                needle);
         case simdjson::dom::element_type::BOOL:
             return try_specialized<simdjson::dom::element_type::BOOL, bool>(needle);
-        case simdjson::dom::element_type::NULL_VALUE:
-            return count_null();
         default:
             return generic_count(needle, begin(), end());
         }
-
->>>>>>> 6c41f9b... ENH: add Array.count
     }
 };
 
