@@ -248,12 +248,90 @@ public:
         return m_value.end();
     }
 
+<<<<<<< HEAD
     bool operator==(const array_element& other) {
         if (this->size() != other.size()) {
             return false;
         }
 
         return element_eq(this->m_value, other.m_value);
+=======
+private:
+    template<simdjson::dom::element_type type, typename T>
+    std::size_t specialized_count(py::borrowed_ref<> generic_needle,
+                                  T needle,
+                                  iterator it,
+                                  iterator end) const {
+        std::size_t out = 0;
+        for (; it != end; ++it) {
+            const auto& e = *it;
+            if (e.type() != type) {
+                return out + generic_count(generic_needle, it, end);
+            }
+            out += needle == T(e);
+        }
+        return out;
+    }
+
+    std::size_t
+    generic_count(py::borrowed_ref<> needle, iterator it, iterator end) const {
+        std::size_t out = 0;
+        py::object_map_key needle_cmp{needle};
+        for (; it != end; ++it) {
+            py::object_map_key rhs = py::to_object(*it);
+            if (!rhs) {
+                throw py::exception{};
+            }
+            out += needle_cmp == rhs;
+        }
+        return out;
+    }
+
+    template<simdjson::dom::element_type type, typename T>
+    std::size_t try_specialized(py::borrowed_ref<> needle) const {
+        T converted;
+        try {
+            converted = py::from_object<T>(needle);
+        }
+        catch (const py::invalid_conversion&) {
+            PyErr_Clear();
+            return generic_count(needle, begin(), end());
+        }
+        return specialized_count<type, T>(needle, converted, begin(), end());
+    }
+
+    std::size_t count_null() const {
+        std::size_t out = 0;
+        for (const auto& e : *this) {
+            out += e.type() == simdjson::dom::element_type::NULL_VALUE;
+        }
+        return out;
+    }
+
+public:
+    std::size_t count(py::borrowed_ref<> needle) const {
+        if (size() == 0) {
+            return 0;
+        }
+
+        switch ((*begin()).type()) {
+        case simdjson::dom::element_type::INT64:
+            return try_specialized<simdjson::dom::element_type::INT64, std::int64_t>(needle);
+        case simdjson::dom::element_type::UINT64:
+            return try_specialized<simdjson::dom::element_type::UINT64, std::uint64_t>(needle);
+        case simdjson::dom::element_type::DOUBLE:
+            return try_specialized<simdjson::dom::element_type::DOUBLE, double>(needle);
+        case simdjson::dom::element_type::STRING:
+            return try_specialized<simdjson::dom::element_type::STRING, std::string_view>(needle);
+        case simdjson::dom::element_type::BOOL:
+            return try_specialized<simdjson::dom::element_type::BOOL, bool>(needle);
+        case simdjson::dom::element_type::NULL_VALUE:
+            return count_null();
+        default:
+            return generic_count(needle, begin(), end());
+        }
+
+>>>>>>> 6c41f9b... ENH: add Array.count
     }
 };
 
@@ -375,6 +453,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
     py::autoclass<array_element>(m, "Array")
         .def<&array_element::at>("at")
         .def<&array_element::as_list>("as_list")
+        .def<&array_element::count>("count")
         .mapping<std::ptrdiff_t>()
         .comparisons<array_element>()
         .len()
