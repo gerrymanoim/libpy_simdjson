@@ -288,7 +288,7 @@ private:
     }
 
     template<simdjson::dom::element_type type, typename T>
-    std::size_t try_specialized(py::borrowed_ref<> needle) const {
+    std::size_t try_specialized_count(py::borrowed_ref<> needle) const {
         T converted;
         try {
             converted = py::from_object<T>(needle);
@@ -308,7 +308,113 @@ private:
         return out;
     }
 
+    template<simdjson::dom::element_type type, typename T>
+    std::ptrdiff_t specialized_index(py::borrowed_ref<> generic_needle,
+                                  T needle,
+                                  iterator it,
+                                  iterator end) const {
+        std::ptrdiff_t out = -1;
+        std::ptrdiff_t index = 0;
+        for (; it != end; ++it) {
+            const auto& e = *it;
+            if (e.type() != type) {
+                return generic_index(generic_needle, it, end, index);
+            }
+            if (needle == T(e)) {
+                out = index;
+                break;
+            }
+            index++;
+        }
+        return out;
+    }
+
+    std::ptrdiff_t
+    generic_index(py::borrowed_ref<> needle, iterator it, iterator end, std::ptrdiff_t index = 0) const {
+        std::size_t out = -1;
+        py::object_map_key needle_cmp{needle};
+        for (; it != end; ++it) {
+            py::object_map_key rhs = py::to_object(*it);
+            if (!rhs) {
+                throw py::exception{};
+            }
+            if (needle_cmp == rhs) {
+                out = index;
+                break;
+            }
+            index++;
+        }
+        return out;
+    }
+
+    template<simdjson::dom::element_type type, typename T>
+    std::ptrdiff_t try_specialized_index(py::borrowed_ref<> needle) const {
+        T converted;
+        try {
+            converted = py::from_object<T>(needle);
+        }
+        catch (const py::invalid_conversion&) {
+            PyErr_Clear();
+            return generic_index(needle, begin(), end());
+        }
+        return specialized_index<type, T>(needle, converted, begin(), end());
+    }
+
+    std::ptrdiff_t index_null() const {
+        std::ptrdiff_t out = -1;
+        for (auto [index, value] : py::enumerate(*this)) {
+            if (value.type() == simdjson::dom::element_type::NULL_VALUE) {
+                out = index;
+                break;
+            }
+        }
+
+        return out;
+    }
+
 public:
+    std::ptrdiff_t index(py::borrowed_ref<> needle) const {
+        if (size() == 0) {
+            throw py::exception(PyExc_ValueError, "'", needle, "' is not in Array");
+        }
+
+        std::ptrdiff_t out;
+
+        if (needle.get() == Py_None) {
+            out = index_null();
+        }
+
+        switch ((*begin()).type()) {
+        case simdjson::dom::element_type::INT64:
+            out = try_specialized_index<simdjson::dom::element_type::INT64, std::int64_t>(
+                needle);
+            break;
+        case simdjson::dom::element_type::UINT64:
+            out =
+                try_specialized_index<simdjson::dom::element_type::UINT64, std::uint64_t>(
+                    needle);
+            break;
+        case simdjson::dom::element_type::DOUBLE:
+            out = try_specialized_index<simdjson::dom::element_type::DOUBLE, double>(
+                needle);
+            break;
+        case simdjson::dom::element_type::STRING:
+            out = try_specialized_index<simdjson::dom::element_type::STRING,
+                                        std::string_view>(needle);
+            break;
+        case simdjson::dom::element_type::BOOL:
+            out = try_specialized_index<simdjson::dom::element_type::BOOL, bool>(needle);
+            break;
+        default:
+            out = generic_index(needle, begin(), end());
+        }
+        if (out < 0) {
+            throw py::exception(PyExc_ValueError, "'", needle, "' is not in Array");
+        }
+
+        return out;
+    }
+
     std::size_t count(py::borrowed_ref<> needle) const {
         if (size() == 0) {
             return 0;
@@ -320,18 +426,19 @@ public:
 
         switch ((*begin()).type()) {
         case simdjson::dom::element_type::INT64:
-            return try_specialized<simdjson::dom::element_type::INT64, std::int64_t>(
-                needle);
+            return try_specialized_count<simdjson::dom::element_type::INT64,
+                                         std::int64_t>(needle);
         case simdjson::dom::element_type::UINT64:
-            return try_specialized<simdjson::dom::element_type::UINT64, std::uint64_t>(
-                needle);
+            return try_specialized_count<simdjson::dom::element_type::UINT64,
+                                         std::uint64_t>(needle);
         case simdjson::dom::element_type::DOUBLE:
-            return try_specialized<simdjson::dom::element_type::DOUBLE, double>(needle);
-        case simdjson::dom::element_type::STRING:
-            return try_specialized<simdjson::dom::element_type::STRING, std::string_view>(
+            return try_specialized_count<simdjson::dom::element_type::DOUBLE, double>(
                 needle);
+        case simdjson::dom::element_type::STRING:
+            return try_specialized_count<simdjson::dom::element_type::STRING,
+                                         std::string_view>(needle);
         case simdjson::dom::element_type::BOOL:
-            return try_specialized<simdjson::dom::element_type::BOOL, bool>(needle);
+            return try_specialized_count<simdjson::dom::element_type::BOOL, bool>(needle);
         default:
             return generic_count(needle, begin(), end());
         }
@@ -457,6 +564,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
         .def<&array_element::at>("at")
         .def<&array_element::as_list>("as_list")
         .def<&array_element::count>("count")
+        .def<&array_element::index>("index")
         .mapping<std::ptrdiff_t>()
         .comparisons<array_element>()
         .len()
