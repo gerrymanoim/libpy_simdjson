@@ -7,6 +7,7 @@
 #include <libpy/autofunction.h>
 #include <libpy/automodule.h>
 #include <libpy/build_tuple.h>
+#include <libpy/itertools.h>
 #include <libpy/to_object.h>
 #include <range/v3/all.hpp>
 
@@ -169,18 +170,28 @@ public:
         return py::to_object(m_value);
     }
 
-    std::size_t size() {
+    std::size_t size() const {
         return m_value.size();
     }
 
     typedef simdjson::dom::array::iterator iterator;
 
-    iterator begin() {
+    iterator begin() const {
         return m_value.begin();
     }
 
-    iterator end() {
+    iterator end() const {
         return m_value.end();
+    }
+
+    bool operator==(const array_element& other) {
+        if (this->size() != other.size()) {
+            return false;
+        }
+
+        auto comp = std::equal(begin(), end(), other.begin());
+
+        return comp;
     }
 };
 
@@ -302,6 +313,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
         .def<&array_element::at>("at")
         .def<&array_element::as_list>("as_list")
         .mapping<std::ptrdiff_t>()
+        .comparisons<array_element>()
         .len()
         .iter()
         .type();

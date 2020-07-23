@@ -1,4 +1,4 @@
-/* auto-generated on Fri Jul 17 14:52:28 EDT 2020. Do not edit! */
+/* auto-generated on Tue 21 Jul 2020 17:54:23 EDT. Do not edit! */
 /* begin file src/simdjson.cpp */
 #include "simdjson.h"
 
@@ -519,7 +519,6 @@ private:
 };
 
 const detect_best_supported_implementation_on_first_use detect_best_supported_implementation_on_first_use_singleton;
-
 
 const std::initializer_list<const implementation *> available_implementation_pointers {
 #if SIMDJSON_IMPLEMENTATION_HASWELL
@@ -2647,10 +2646,14 @@ really_inline int8x16_t make_int8x16_t(int8_t x1,  int8_t x2,  int8_t x3,  int8_
 
   template<typename T>
   struct simd8x64 {
-    static const int NUM_CHUNKS = 64 / sizeof(simd8<T>);
+    static constexpr int NUM_CHUNKS = 64 / sizeof(simd8<T>);
+    static_assert(NUM_CHUNKS == 4, "ARM kernel should use four registers per 64-byte block.");
     const simd8<T> chunks[NUM_CHUNKS];
 
-    really_inline simd8x64() : chunks{simd8<T>(), simd8<T>(), simd8<T>(), simd8<T>()} {}
+    simd8x64(const simd8x64<T>& o) = delete; // no copy allowed
+    simd8x64<T>& operator=(const simd8<T> other) = delete; // no assignment allowed
+    simd8x64() = delete; // no default constructor allowed
+    
     really_inline simd8x64(const simd8<T> chunk0, const simd8<T> chunk1, const simd8<T> chunk2, const simd8<T> chunk3) : chunks{chunk0, chunk1, chunk2, chunk3} {}
     really_inline simd8x64(const T ptr[64]) : chunks{simd8<T>::load(ptr), simd8<T>::load(ptr+16), simd8<T>::load(ptr+32), simd8<T>::load(ptr+48)} {}
 
@@ -2661,56 +2664,16 @@ really_inline int8x16_t make_int8x16_t(int8_t x1,  int8_t x2,  int8_t x3,  int8_
       this->chunks[3].store(ptr+sizeof(simd8<T>)*3);
     }
 
+    really_inline simd8<T> reduce_or() const {
+      return (this->chunks[0] | this->chunks[1]) | (this->chunks[2] | this->chunks[3]);
+    }
+
+
     really_inline void compress(uint64_t mask, T * output) const {
       this->chunks[0].compress(uint16_t(mask), output);
       this->chunks[1].compress(uint16_t(mask >> 16), output + 16 - count_ones(mask & 0xFFFF));
       this->chunks[2].compress(uint16_t(mask >> 32), output + 32 - count_ones(mask & 0xFFFFFFFF));
       this->chunks[3].compress(uint16_t(mask >> 48), output + 48 - count_ones(mask & 0xFFFFFFFFFFFF));
-    }
-
-    template <typename F>
-    static really_inline void each_index(F const& each) {
-      each(0);
-      each(1);
-      each(2);
-      each(3);
-    }
-
-    template <typename F>
-    really_inline void each(F const& each_chunk) const
-    {
-      each_chunk(this->chunks[0]);
-      each_chunk(this->chunks[1]);
-      each_chunk(this->chunks[2]);
-      each_chunk(this->chunks[3]);
-    }
-
-    template <typename R=bool, typename F>
-    really_inline simd8x64<R> map(F const& map_chunk) const {
-      return simd8x64<R>(
-        map_chunk(this->chunks[0]),
-        map_chunk(this->chunks[1]),
-        map_chunk(this->chunks[2]),
-        map_chunk(this->chunks[3])
-      );
-    }
-
-    template <typename R=bool, typename F>
-    really_inline simd8x64<R> map(const simd8x64<T> b, F const& map_chunk) const {
-      return simd8x64<R>(
-        map_chunk(this->chunks[0], b.chunks[0]),
-        map_chunk(this->chunks[1], b.chunks[1]),
-        map_chunk(this->chunks[2], b.chunks[2]),
-        map_chunk(this->chunks[3], b.chunks[3])
-      );
-    }
-
-    template <typename F>
-    really_inline simd8<T> reduce(F const& reduce_pair) const {
-      return reduce_pair(
-        reduce_pair(this->chunks[0], this->chunks[1]),
-        reduce_pair(this->chunks[2], this->chunks[3])
-      );
     }
 
     really_inline uint64_t to_bitmask() const {
@@ -2735,17 +2698,32 @@ really_inline int8x16_t make_int8x16_t(int8_t x1,  int8_t x2,  int8_t x3,  int8_
 
     really_inline simd8x64<T> bit_or(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a | mask; } );
+      return simd8x64<T>(
+        this->chunks[0] | mask,
+        this->chunks[1] | mask,
+        this->chunks[2] | mask,
+        this->chunks[3] | mask
+      );
     }
 
     really_inline uint64_t eq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a == mask; } ).to_bitmask();
+      return  simd8x64<bool>(
+        this->chunks[0] == mask,
+        this->chunks[1] == mask,
+        this->chunks[2] == mask,
+        this->chunks[3] == mask
+      ).to_bitmask();
     }
 
     really_inline uint64_t lteq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a <= mask; } ).to_bitmask();
+      return  simd8x64<bool>(
+        this->chunks[0] <= mask,
+        this->chunks[1] <= mask,
+        this->chunks[2] <= mask,
+        this->chunks[3] <= mask
+      ).to_bitmask();
     }
   }; // struct simd8x64<T>
 
@@ -2763,7 +2741,7 @@ namespace arm64 {
 using namespace simd;
 
 struct json_character_block {
-  static really_inline json_character_block classify(const simd::simd8x64<uint8_t> in);
+  static really_inline json_character_block classify(const simd::simd8x64<uint8_t>& in);
 
   really_inline uint64_t whitespace() const { return _whitespace; }
   really_inline uint64_t op() const { return _op; }
@@ -2773,14 +2751,25 @@ struct json_character_block {
   uint64_t _op;
 };
 
-really_inline json_character_block json_character_block::classify(const simd::simd8x64<uint8_t> in) {
-  auto v = in.map<uint8_t>([&](simd8<uint8_t> chunk) {
-    auto nib_lo = chunk & 0xf;
-    auto nib_hi = chunk.shr<4>();
-    auto shuf_lo = nib_lo.lookup_16<uint8_t>(16, 0, 0, 0, 0, 0, 0, 0, 0, 8, 12, 1, 2, 9, 0, 0);
-    auto shuf_hi = nib_hi.lookup_16<uint8_t>(8, 0, 18, 4, 0, 1, 0, 1, 0, 0, 0, 3, 2, 1, 0, 0);
-    return shuf_lo & shuf_hi;
-  });
+really_inline json_character_block json_character_block::classify(const simd::simd8x64<uint8_t>& in) {
+  // Functional programming causes trouble with Visual Studio.
+  // Keeping this version in comments since it is much nicer:
+  // auto v = in.map<uint8_t>([&](simd8<uint8_t> chunk) {
+  //  auto nib_lo = chunk & 0xf;
+  //  auto nib_hi = chunk.shr<4>();
+  //  auto shuf_lo = nib_lo.lookup_16<uint8_t>(16, 0, 0, 0, 0, 0, 0, 0, 0, 8, 12, 1, 2, 9, 0, 0);
+  //  auto shuf_hi = nib_hi.lookup_16<uint8_t>(8, 0, 18, 4, 0, 1, 0, 1, 0, 0, 0, 3, 2, 1, 0, 0);
+  //  return shuf_lo & shuf_hi;
+  // });
+  const simd8<uint8_t> table1(16, 0, 0, 0, 0, 0, 0, 0, 0, 8, 12, 1, 2, 9, 0, 0);
+  const simd8<uint8_t> table2(8, 0, 18, 4, 0, 1, 0, 1, 0, 0, 0, 3, 2, 1, 0, 0);
+
+  simd8x64<uint8_t> v(
+     (in.chunks[0] & 0xf).lookup_16(table1) & (in.chunks[0].shr<4>()).lookup_16(table2),
+     (in.chunks[1] & 0xf).lookup_16(table1) & (in.chunks[1].shr<4>()).lookup_16(table2),
+     (in.chunks[2] & 0xf).lookup_16(table1) & (in.chunks[2].shr<4>()).lookup_16(table2),
+     (in.chunks[3] & 0xf).lookup_16(table1) & (in.chunks[3].shr<4>()).lookup_16(table2)
+  );
 
 
   // We compute whitespace and op separately. If the code later only use one or the
@@ -2799,17 +2788,29 @@ really_inline json_character_block json_character_block::classify(const simd::si
   // there is a small untaken optimization opportunity here. We deliberately
   // do not pick it up.
 
-  uint64_t op = v.map([&](simd8<uint8_t> _v) { return _v.any_bits_set(0x7); }).to_bitmask();
-  uint64_t whitespace = v.map([&](simd8<uint8_t> _v) { return _v.any_bits_set(0x18); }).to_bitmask();
+  uint64_t op = simd8x64<bool>(
+        v.chunks[0].any_bits_set(0x7),
+        v.chunks[1].any_bits_set(0x7),
+        v.chunks[2].any_bits_set(0x7),
+        v.chunks[3].any_bits_set(0x7)
+  ).to_bitmask();
+
+  uint64_t whitespace = simd8x64<bool>(
+        v.chunks[0].any_bits_set(0x18),
+        v.chunks[1].any_bits_set(0x18),
+        v.chunks[2].any_bits_set(0x18),
+        v.chunks[3].any_bits_set(0x18)
+  ).to_bitmask();
+
   return { whitespace, op };
 }
 
-really_inline bool is_ascii(simd8x64<uint8_t> input) {
-    simd8<uint8_t> bits = input.reduce([&](simd8<uint8_t> a,simd8<uint8_t> b) { return a|b; });
+really_inline bool is_ascii(const simd8x64<uint8_t>& input) {
+    simd8<uint8_t> bits = input.reduce_or();
     return bits.max() < 0b10000000u;
 }
 
-really_inline simd8<bool> must_be_continuation(simd8<uint8_t> prev1, simd8<uint8_t> prev2, simd8<uint8_t> prev3) {
+really_inline simd8<bool> must_be_continuation(const simd8<uint8_t> prev1, const simd8<uint8_t> prev2, const simd8<uint8_t> prev3) {
     simd8<bool> is_second_byte = prev1 >= uint8_t(0b11000000u);
     simd8<bool> is_third_byte  = prev2 >= uint8_t(0b11100000u);
     simd8<bool> is_fourth_byte = prev3 >= uint8_t(0b11110000u);
@@ -2821,7 +2822,7 @@ really_inline simd8<bool> must_be_continuation(simd8<uint8_t> prev1, simd8<uint8
     return is_second_byte ^ is_third_byte ^ is_fourth_byte;
 }
 
-really_inline simd8<bool> must_be_2_3_continuation(simd8<uint8_t> prev2, simd8<uint8_t> prev3) {
+really_inline simd8<bool> must_be_2_3_continuation(const simd8<uint8_t> prev2, const simd8<uint8_t> prev3) {
     simd8<bool> is_third_byte  = prev2 >= uint8_t(0b11100000u);
     simd8<bool> is_fourth_byte = prev3 >= uint8_t(0b11110000u);
     return is_third_byte ^ is_fourth_byte;
@@ -2865,7 +2866,7 @@ UNUSED static char * format_input_text_64(const uint8_t *text) {
 }
 
 // Routines to print masks and text for debugging bitmask operations
-UNUSED static char * format_input_text(const simd8x64<uint8_t> in) {
+UNUSED static char * format_input_text(const simd8x64<uint8_t>& in) {
   static char *buf = (char*)malloc(sizeof(simd8x64<uint8_t>) + 1);
   in.store((uint8_t*)buf);
   for (size_t i=0; i<sizeof(simd8x64<uint8_t>); i++) {
@@ -2948,7 +2949,7 @@ struct json_string_block {
 // Scans blocks for string characters, storing the state necessary to do so
 class json_string_scanner {
 public:
-  really_inline json_string_block next(const simd::simd8x64<uint8_t> in);
+  really_inline json_string_block next(const simd::simd8x64<uint8_t>& in);
   really_inline error_code finish(bool streaming);
 
 private:
@@ -3014,7 +3015,7 @@ really_inline uint64_t json_string_scanner::find_escaped_branchless(uint64_t bac
 //
 // Backslash sequences outside of quotes will be detected in stage 2.
 //
-really_inline json_string_block json_string_scanner::next(const simd::simd8x64<uint8_t> in) {
+really_inline json_string_block json_string_scanner::next(const simd::simd8x64<uint8_t>& in) {
   const uint64_t backslash = in.eq('\\');
   const uint64_t escaped = find_escaped(backslash);
   const uint64_t quote = in.eq('"') & ~escaped;
@@ -3105,7 +3106,7 @@ private:
 class json_scanner {
 public:
   json_scanner() {}
-  really_inline json_block next(const simd::simd8x64<uint8_t> in);
+  really_inline json_block next(const simd::simd8x64<uint8_t>& in);
   really_inline error_code finish(bool streaming);
 
 private:
@@ -3142,7 +3143,7 @@ really_inline uint64_t follows(const uint64_t match, const uint64_t filler, uint
   return result;
 }
 
-really_inline json_block json_scanner::next(const simd::simd8x64<uint8_t> in) {
+really_inline json_block json_scanner::next(const simd::simd8x64<uint8_t>& in) {
   json_string_block strings = string_scanner.next(in);
   json_character_block characters = json_character_block::classify(in);
   uint64_t follows_scalar = follows(characters.scalar(), prev_scalar);
@@ -3188,13 +3189,13 @@ private:
   {}
   template<size_t STEP_SIZE>
   really_inline void step(const uint8_t *block_buf, buf_block_reader<STEP_SIZE> &reader) noexcept;
-  really_inline void next(simd::simd8x64<uint8_t> in, json_block block);
+  really_inline void next(const simd::simd8x64<uint8_t>& in, json_block block);
   really_inline error_code finish(uint8_t *dst_start, size_t &dst_len);
   json_scanner scanner{};
   uint8_t *dst;
 };
 
-really_inline void json_minifier::next(simd::simd8x64<uint8_t> in, json_block block) {
+really_inline void json_minifier::next(const simd::simd8x64<uint8_t>& in, json_block block) {
   uint64_t mask = block.whitespace();
   in.compress(mask, dst);
   dst += 64 - count_ones(mask);
@@ -3278,7 +3279,7 @@ WARN_UNUSED error_code implementation::minify(const uint8_t *buf, size_t len, ui
   * complete document, therefore the last json buffer location is the end of the
   * batch.
   */
-really_inline static uint32_t find_next_document_index(dom_parser_implementation &parser) {
+really_inline uint32_t find_next_document_index(dom_parser_implementation &parser) {
   // TODO don't count separately, just figure out depth
   auto arr_cnt = 0;
   auto obj_cnt = 0;
@@ -3320,7 +3321,7 @@ really_inline static uint32_t find_next_document_index(dom_parser_implementation
 }
 
 // Skip the last character if it is partial
-really_inline static size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
+really_inline size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
   if (unlikely(len < 3)) {
     switch (len) {
       case 2:
@@ -3340,176 +3341,117 @@ really_inline static size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
   return len;
 }
 /* end file src/generic/stage1/find_next_document_index.h */
-/* begin file src/generic/stage1/utf8_lookup3_algorithm.h */
-//
-// Detect Unicode errors.
-//
-// UTF-8 is designed to allow multiple bytes and be compatible with ASCII. It's a fairly basic
-// encoding that uses the first few bits on each byte to denote a "byte type", and all other bits
-// are straight up concatenated into the final value. The first byte of a multibyte character is a
-// "leading byte" and starts with N 1's, where N is the total number of bytes (110_____ = 2 byte
-// lead). The remaining bytes of a multibyte character all start with 10. 1-byte characters just
-// start with 0, because that's what ASCII looks like. Here's what each size looks like:
-//
-// - ASCII (7 bits):              0_______
-// - 2 byte character (11 bits):  110_____ 10______
-// - 3 byte character (17 bits):  1110____ 10______ 10______
-// - 4 byte character (23 bits):  11110___ 10______ 10______ 10______
-// - 5+ byte character (illegal): 11111___ <illegal>
-//
-// There are 5 classes of error that can happen in Unicode:
-//
-// - TOO_SHORT: when you have a multibyte character with too few bytes (i.e. missing continuation).
-//   We detect this by looking for new characters (lead bytes) inside the range of a multibyte
-//   character.
-//
-//   e.g. 11000000 01100001 (2-byte character where second byte is ASCII)
-//
-// - TOO_LONG: when there are more bytes in your character than you need (i.e. extra continuation).
-//   We detect this by requiring that the next byte after your multibyte character be a new
-//   character--so a continuation after your character is wrong.
-//
-//   e.g. 11011111 10111111 10111111 (2-byte character followed by *another* continuation byte)
-//
-// - TOO_LARGE: Unicode only goes up to U+10FFFF. These characters are too large.
-//
-//   e.g. 11110111 10111111 10111111 10111111 (bigger than 10FFFF).
-//
-// - OVERLONG: multibyte characters with a bunch of leading zeroes, where you could have
-//   used fewer bytes to make the same character. Like encoding an ASCII character in 4 bytes is
-//   technically possible, but UTF-8 disallows it so that there is only one way to write an "a".
-//
-//   e.g. 11000001 10100001 (2-byte encoding of "a", which only requires 1 byte: 01100001)
-//
-// - SURROGATE: Unicode U+D800-U+DFFF is a *surrogate* character, reserved for use in UCS-2 and
-//   WTF-8 encodings for characters with > 2 bytes. These are illegal in pure UTF-8.
-//
-//   e.g. 11101101 10100000 10000000 (U+D800)
-//
-// - INVALID_5_BYTE: 5-byte, 6-byte, 7-byte and 8-byte characters are unsupported; Unicode does not
-//   support values with more than 23 bits (which a 4-byte character supports).
-//
-//   e.g. 11111000 10100000 10000000 10000000 10000000 (U+800000)
-//
-// Legal utf-8 byte sequences per  http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf - page 94:
-//
-//   Code Points        1st       2s       3s       4s
-//  U+0000..U+007F     00..7F
-//  U+0080..U+07FF     C2..DF   80..BF
-//  U+0800..U+0FFF     E0       A0..BF   80..BF
-//  U+1000..U+CFFF     E1..EC   80..BF   80..BF
-//  U+D000..U+D7FF     ED       80..9F   80..BF
-//  U+E000..U+FFFF     EE..EF   80..BF   80..BF
-//  U+10000..U+3FFFF   F0       90..BF   80..BF   80..BF
-//  U+40000..U+FFFFF   F1..F3   80..BF   80..BF   80..BF
-//  U+100000..U+10FFFF F4       80..8F   80..BF   80..BF
-//
+/* begin file src/generic/stage1/utf8_lookup4_algorithm.h */
 using namespace simd;
 
 namespace utf8_validation {
-  // For a detailed description of the lookup2 algorithm, see the file HACKING.md under "UTF-8 validation (lookup2)".
 
-  //
-  // Find special case UTF-8 errors where the character is technically readable (has the right length)
-  // but the *value* is disallowed.
-  //
-  // This includes overlong encodings, surrogates and values too large for Unicode.
-  //
-  // It turns out the bad character ranges can all be detected by looking at the first 12 bits of the
-  // UTF-8 encoded character (i.e. all of byte 1, and the high 4 bits of byte 2). This algorithm does a
-  // 3 4-bit table lookups, identifying which errors that 4 bits could match, and then &'s them together.
-  // If all 3 lookups detect the same error, it's an error.
-  //
+using namespace simd;
+
   really_inline simd8<uint8_t> check_special_cases(const simd8<uint8_t> input, const simd8<uint8_t> prev1) {
-    //
-    // These are the errors we're going to match for bytes 1-2, by looking at the first three
-    // nibbles of the character: <high bits of byte 1>> & <low bits of byte 1> & <high bits of byte 2>
-    //
-    static const int OVERLONG_2  = 0x01; // 1100000_ 10______ (technically we match 10______ but we could match ________, they both yield errors either way)
-    static const int OVERLONG_3  = 0x02; // 11100000 100_____ ________
-    static const int OVERLONG_4  = 0x04; // 11110000 1000____ ________ ________
-    static const int SURROGATE   = 0x08; // 11101101 [101_]____
-    static const int TOO_LARGE   = 0x10; // 11110100 (1001|101_)____
-    static const int TOO_LARGE_2 = 0x20; // 1111(1___|011_|0101) 10______
+// Bit 0 = Too Short (lead byte/ASCII followed by lead byte/ASCII)
+// Bit 1 = Too Long (ASCII followed by continuation)
+// Bit 2 = Overlong 3-byte
+// Bit 4 = Surrogate
+// Bit 5 = Overlong 2-byte
+// Bit 7 = Two Continuations
+    constexpr const uint8_t TOO_SHORT   = 1<<0; // 11______ 0_______
+                                                // 11______ 11______
+    constexpr const uint8_t TOO_LONG    = 1<<1; // 0_______ 10______
+    constexpr const uint8_t OVERLONG_3  = 1<<2; // 11100000 100_____
+    constexpr const uint8_t SURROGATE   = 1<<4; // 11101101 101_____
+    constexpr const uint8_t OVERLONG_2  = 1<<5; // 1100000_ 10______
+    constexpr const uint8_t TWO_CONTS   = 1<<7; // 10______ 10______
+    constexpr const uint8_t TOO_LARGE   = 1<<3; // 11110100 1001____
+                                                // 11110100 101_____
+                                                // 11110101 1001____
+                                                // 11110101 101_____
+                                                // 1111011_ 1001____
+                                                // 1111011_ 101_____
+                                                // 11111___ 1001____
+                                                // 11111___ 101_____
+    constexpr const uint8_t TOO_LARGE_1000 = 1<<6;
+                                                // 11110101 1000____
+                                                // 1111011_ 1000____
+                                                // 11111___ 1000____
+    constexpr const uint8_t OVERLONG_4  = 1<<6; // 11110000 1000____
 
-    // New with lookup3. We want to catch the case where an non-continuation 
-    // follows a leading byte
-    static const int TOO_SHORT_2_3_4 = 0x40; //  (110_|1110|1111) ____    (0___|110_|1111) ____
-    // We also want to catch a continuation that is preceded by an ASCII byte
-    static const int LONELY_CONTINUATION = 0x80; //  0___ ____    01__ ____
-
-    // After processing the rest of byte 1 (the low bits), we're still not done--we have to check
-    // byte 2 to be sure which things are errors and which aren't.
-    // Since high_bits is byte 5, byte 2 is high_bits.prev<3>
-    static const int CARRY = OVERLONG_2 | TOO_LARGE_2;
-    const simd8<uint8_t> byte_2_high = input.shr<4>().lookup_16<uint8_t>(
-        // ASCII: ________ [0___]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        // ASCII: ________ [0___]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        // Continuations: ________ [10__]____
-        CARRY | OVERLONG_3 | OVERLONG_4 | LONELY_CONTINUATION, // ________ [1000]____
-        CARRY | OVERLONG_3 | TOO_LARGE | LONELY_CONTINUATION,  // ________ [1001]____
-        CARRY | TOO_LARGE  | SURROGATE | LONELY_CONTINUATION,  // ________ [1010]____
-        CARRY | TOO_LARGE  | SURROGATE | LONELY_CONTINUATION,  // ________ [1011]____
-        // Multibyte Leads: ________ [11__]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,  // 110_
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4
-    );
     const simd8<uint8_t> byte_1_high = prev1.shr<4>().lookup_16<uint8_t>(
-      // [0___]____ (ASCII)
-      LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION,
-      LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION,
-      // [10__]____ (continuation)
-      0, 0, 0, 0,
-      // [11__]____ (2+-byte leads)
-      OVERLONG_2 | TOO_SHORT_2_3_4, TOO_SHORT_2_3_4,         // [110_]____ (2-byte lead)
-      OVERLONG_3 | SURROGATE | TOO_SHORT_2_3_4,              // [1110]____ (3-byte lead)
-      OVERLONG_4 | TOO_LARGE | TOO_LARGE_2 | TOO_SHORT_2_3_4 // [1111]____ (4+-byte lead)
+      // 0_______ ________ <ASCII in byte 1>
+      TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG,
+      TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG,
+      // 10______ ________ <continuation in byte 1>
+      TWO_CONTS, TWO_CONTS, TWO_CONTS, TWO_CONTS,
+      // 1100____ ________ <two byte lead in byte 1>
+      TOO_SHORT | OVERLONG_2,
+      // 1101____ ________ <two byte lead in byte 1>
+      TOO_SHORT,
+      // 1110____ ________ <three byte lead in byte 1>
+      TOO_SHORT | OVERLONG_3 | SURROGATE,
+      // 1111____ ________ <four+ byte lead in byte 1>
+      TOO_SHORT | TOO_LARGE | TOO_LARGE_1000 | OVERLONG_4
     );
+    constexpr const uint8_t CARRY = TOO_SHORT | TOO_LONG | TWO_CONTS; // These all have ____ in byte 1 .
     const simd8<uint8_t> byte_1_low = (prev1 & 0x0F).lookup_16<uint8_t>(
-      // ____[00__] ________
-      OVERLONG_2 | OVERLONG_3 | OVERLONG_4 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION, // ____[0000] ________
-      OVERLONG_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,                           // ____[0001] ________
-      TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[01__] ________
-      TOO_LARGE | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,                            // ____[0100] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[10__] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[11__] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | SURROGATE | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,              // ____[1101] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4| LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION
-    );
-    return byte_1_high & byte_1_low & byte_2_high;
-  }
+      // ____0000 ________
+      CARRY | OVERLONG_3 | OVERLONG_2 | OVERLONG_4,
+      // ____0001 ________
+      CARRY | OVERLONG_2,
+      // ____001_ ________
+      CARRY,
+      CARRY,
 
-  really_inline simd8<uint8_t> check_multibyte_lengths(simd8<uint8_t> input, simd8<uint8_t> prev_input,
-      simd8<uint8_t> prev1) {
+      // ____0100 ________
+      CARRY | TOO_LARGE,
+      // ____0101 ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      // ____011_ ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+
+      // ____1___ ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      // ____1101 ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000 | SURROGATE,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000
+    );
+    const simd8<uint8_t> byte_2_high = input.shr<4>().lookup_16<uint8_t>(
+      // ________ 0_______ <ASCII in byte 2>
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT,
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT,
+
+      // ________ 1000____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE_1000 | OVERLONG_4,
+      // ________ 1001____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE,
+      // ________ 101_____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE  | TOO_LARGE,
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE  | TOO_LARGE,
+
+      // ________ 11______
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT
+    );
+    return (byte_1_high & byte_1_low & byte_2_high);
+  }
+  really_inline simd8<uint8_t> check_multibyte_lengths(const simd8<uint8_t> input,
+      const simd8<uint8_t> prev_input, const simd8<uint8_t> sc) {
     simd8<uint8_t> prev2 = input.prev<2>(prev_input);
     simd8<uint8_t> prev3 = input.prev<3>(prev_input);
-    // is_2_3_continuation uses one more instruction than lookup2
-    simd8<bool> is_2_3_continuation = (simd8<int8_t>(input).max(simd8<int8_t>(prev1))) < int8_t(-64);
-    // must_be_2_3_continuation has two fewer instructions than lookup 2
-    return simd8<uint8_t>(must_be_2_3_continuation(prev2, prev3) ^ is_2_3_continuation);
+    simd8<uint8_t> must23 = simd8<uint8_t>(must_be_2_3_continuation(prev2, prev3));
+    simd8<uint8_t> must23_80 = must23 & uint8_t(0x80);
+    return must23_80 ^ sc;
   }
-
 
   //
   // Return nonzero if there are incomplete multibyte characters at the end of the block:
   // e.g. if there is a 4-byte character, but it's 3 bytes from the end.
   //
-  really_inline simd8<uint8_t> is_incomplete(simd8<uint8_t> input) {
+  really_inline simd8<uint8_t> is_incomplete(const simd8<uint8_t> input) {
     // If the previous input's last 3 bytes match this, they're too short (they ended at EOF):
     // ... 1111____ 111_____ 11______
     static const uint8_t max_array[32] = {
@@ -3537,8 +3479,8 @@ namespace utf8_validation {
       // Flip prev1...prev3 so we can easily determine if they are 2+, 3+ or 4+ lead bytes
       // (2, 3, 4-byte leads become large positive numbers instead of small negative numbers)
       simd8<uint8_t> prev1 = input.prev<1>(prev_input);
-      this->error |= check_special_cases(input, prev1);
-      this->error |= check_multibyte_lengths(input, prev_input, prev1);
+      simd8<uint8_t> sc = check_special_cases(input, prev1);
+      this->error |= check_multibyte_lengths(input, prev_input, sc);
     }
 
     // The only problem that can happen at EOF is that a multibyte character is too short.
@@ -3548,30 +3490,37 @@ namespace utf8_validation {
       this->error |= this->prev_incomplete;
     }
 
-    really_inline void check_next_input(simd8x64<uint8_t> input) {
-      if (likely(is_ascii(input))) {
-        // If the previous block had incomplete UTF-8 characters at the end, an ASCII block can't
-        // possibly finish them.
+    really_inline void check_next_input(const simd8x64<uint8_t>& input) {
+      if(likely(is_ascii(input))) {
         this->error |= this->prev_incomplete;
       } else {
-        this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
-        for (int i=1; i<simd8x64<uint8_t>::NUM_CHUNKS; i++) {
-          this->check_utf8_bytes(input.chunks[i], input.chunks[i-1]);
+        // you might think that a for-loop would work, but under Visual Studio, it is not good enough.
+        static_assert((simd8x64<uint8_t>::NUM_CHUNKS == 2) || (simd8x64<uint8_t>::NUM_CHUNKS == 4),
+            "We support either two or four chunks per 64-byte block.");
+        if(simd8x64<uint8_t>::NUM_CHUNKS == 2) {
+          this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
+          this->check_utf8_bytes(input.chunks[1], input.chunks[0]);
+        } else if(simd8x64<uint8_t>::NUM_CHUNKS == 4) {
+          this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
+          this->check_utf8_bytes(input.chunks[1], input.chunks[0]);
+          this->check_utf8_bytes(input.chunks[2], input.chunks[1]);
+          this->check_utf8_bytes(input.chunks[3], input.chunks[2]);
         }
         this->prev_incomplete = is_incomplete(input.chunks[simd8x64<uint8_t>::NUM_CHUNKS-1]);
         this->prev_input_block = input.chunks[simd8x64<uint8_t>::NUM_CHUNKS-1];
+
       }
     }
 
     really_inline error_code errors() {
-      return this->error.any_bits_set_anywhere() ? simdjson::UTF8_ERROR : simdjson::SUCCESS;
+      return this->error.any_bits_set_anywhere() ? error_code::UTF8_ERROR : error_code::SUCCESS;
     }
 
   }; // struct utf8_checker
 }
 
 using utf8_validation::utf8_checker;
-/* end file src/generic/stage1/utf8_lookup3_algorithm.h */
+/* end file src/generic/stage1/utf8_lookup4_algorithm.h */
 /* begin file src/generic/stage1/json_structural_indexer.h */
 // This file contains the common code every implementation uses in stage1
 // It is intended to be included multiple times and compiled multiple times
@@ -3646,7 +3595,7 @@ private:
   really_inline json_structural_indexer(uint32_t *structural_indexes);
   template<size_t STEP_SIZE>
   really_inline void step(const uint8_t *block, buf_block_reader<STEP_SIZE> &reader) noexcept;
-  really_inline void next(simd::simd8x64<uint8_t> in, json_block block, size_t idx);
+  really_inline void next(const simd::simd8x64<uint8_t>& in, json_block block, size_t idx);
   really_inline error_code finish(dom_parser_implementation &parser, size_t idx, size_t len, bool partial);
 
   json_scanner scanner{};
@@ -3715,7 +3664,7 @@ really_inline void json_structural_indexer::step<64>(const uint8_t *block, buf_b
   reader.advance();
 }
 
-really_inline void json_structural_indexer::next(simd::simd8x64<uint8_t> in, json_block block, size_t idx) {
+really_inline void json_structural_indexer::next(const simd::simd8x64<uint8_t>& in, json_block block, size_t idx) {
   uint64_t unescaped = in.lteq(0x1F);
   checker.check_next_input(in);
   indexer.write(uint32_t(idx-64), prev_structurals); // Output *last* iteration's structurals to the parser
@@ -4016,7 +3965,7 @@ namespace arm64 {
 
 // we don't have SSE, so let us use a scalar function
 // credit: https://johnnylee-sde.github.io/Fast-numeric-string-to-int/
-static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
+static really_inline uint32_t parse_eight_digits_unrolled(const uint8_t *chars) {
   uint64_t val;
   memcpy(&val, chars, sizeof(uint64_t));
   val = (val & 0x0F0F0F0F0F0F0F0F) * 2561 >> 8;
@@ -4030,14 +3979,25 @@ static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
 namespace stage2 {
 namespace numberparsing {
 
+#ifdef JSON_TEST_NUMBERS
+#define INVALID_NUMBER(SRC) (found_invalid_number((SRC)), false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) (found_integer((VALUE), (SRC)), writer.append_s64((VALUE)))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) (found_unsigned_integer((VALUE), (SRC)), writer.append_u64((VALUE)))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) (found_float((VALUE), (SRC)), writer.append_double((VALUE)))
+#else
+#define INVALID_NUMBER(SRC) (false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) writer.append_s64((VALUE))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) writer.append_u64((VALUE))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) writer.append_double((VALUE))
+#endif
+
 // Attempts to compute i * 10^(power) exactly; and if "negative" is
 // true, negate the result.
 // This function will only work in some cases, when it does not work, success is
 // set to false. This should work *most of the time* (like 99% of the time).
 // We assume that power is in the [FASTFLOAT_SMALLEST_POWER,
 // FASTFLOAT_LARGEST_POWER] interval: the caller is responsible for this check.
-really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
-                                      bool *success) {
+really_inline double compute_float_64(int64_t power, uint64_t i, bool negative, bool *success) {
   // we start with a fast path
   // It was described in
   // Clinger WD. How to read floating point numbers accurately.
@@ -4217,9 +4177,9 @@ really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
   return d;
 }
 
-static bool parse_float_strtod(const char *ptr, double *outDouble) {
+static bool parse_float_strtod(const uint8_t *ptr, double *outDouble) {
   char *endptr;
-  *outDouble = strtod(ptr, &endptr);
+  *outDouble = strtod((const char *)ptr, &endptr);
   // Some libraries will set errno = ERANGE when the value is subnormal,
   // yet we may want to be able to parse subnormal values.
   // However, we do not want to tolerate NAN or infinite values.
@@ -4240,22 +4200,16 @@ static bool parse_float_strtod(const char *ptr, double *outDouble) {
   // a float that does not fit in binary64. JSON for Modern C++ (nlohmann/json)
   // will flat out throw an exception.
   //
-  if ((endptr == ptr) || (!std::isfinite(*outDouble))) {
+  if ((endptr == (const char *)ptr) || (!std::isfinite(*outDouble))) {
     return false;
   }
   return true;
 }
 
-really_inline bool is_integer(char c) {
-  return (c >= '0' && c <= '9');
-  // this gets compiled to (uint8_t)(c - '0') <= 9 on all decent compilers
-}
-
-
 // check quickly whether the next 8 chars are made of digits
 // at a glance, it looks better than Mula's
 // http://0x80.pl/articles/swar-digits-validate.html
-really_inline bool is_made_of_eight_digits_fast(const char *chars) {
+really_inline bool is_made_of_eight_digits_fast(const uint8_t *chars) {
   uint64_t val;
   // this can read up to 7 bytes beyond the buffer size, but we require
   // SIMDJSON_PADDING of padding
@@ -4270,110 +4224,140 @@ really_inline bool is_made_of_eight_digits_fast(const char *chars) {
           0x3333333333333333);
 }
 
-// called by parse_number when we know that the output is an integer,
-// but where there might be some integer overflow.
-// we want to catch overflows!
-// Do not call this function directly as it skips some of the checks from
-// parse_number
-//
-// This function will almost never be called!!!
-//
 template<typename W>
-never_inline bool parse_large_integer(const uint8_t *const src,
-                                      W writer,
-                                      bool found_minus) {
-  const char *p = reinterpret_cast<const char *>(src);
-
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-  }
-  uint64_t i;
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    i = 0;
-  } else {
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      if (mul_overflow(i, 10, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      if (add_overflow(i, digit, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      ++p;
-    }
-  }
-  if (negative) {
-    if (i > 0x8000000000000000) {
-      // overflows!
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false; // overflow
-    } else if (i == 0x8000000000000000) {
-      // In two's complement, we cannot represent 0x8000000000000000
-      // as a positive signed integer, but the negative version is
-      // possible.
-      constexpr int64_t signed_answer = INT64_MIN;
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    } else {
-      // we can negate safely
-      int64_t signed_answer = -static_cast<int64_t>(i);
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    }
-  } else {
-    // we have a positive integer, the contract is that
-    // we try to represent it as a signed integer and only
-    // fallback on unsigned integers if absolutely necessary.
-    if (i < 0x8000000000000000) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(i, src);
-#endif
-      writer.append_s64(i);
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_unsigned_integer(i, src);
-#endif
-      writer.append_u64(i);
-    }
-  }
-  return is_structural_or_whitespace(*p);
-}
-
-template<typename W>
-bool slow_float_parsing(UNUSED const char * src, W writer) {
+bool slow_float_parsing(UNUSED const uint8_t * src, W writer) {
   double d;
   if (parse_float_strtod(src, &d)) {
-    writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_float(d, (const uint8_t *)src);
-#endif
+    WRITE_DOUBLE(d, src, writer);
     return true;
   }
-#ifdef JSON_TEST_NUMBERS // for unit testing
-  found_invalid_number((const uint8_t *)src);
-#endif
-  return false;
+  return INVALID_NUMBER(src);
 }
+
+template<typename I>
+NO_SANITIZE_UNDEFINED // We deliberately allow overflow here and check later
+really_inline bool parse_digit(const uint8_t c, I &i) {
+  const uint8_t digit = static_cast<uint8_t>(c - '0');
+  if (digit > 9) {
+    return false;
+  }
+  // PERF NOTE: multiplication by 10 is cheaper than arbitrary integer multiplication
+  i = 10 * i + digit; // might overflow, we will handle the overflow later
+  return true;
+}
+
+really_inline bool parse_decimal(UNUSED const uint8_t *const src, const uint8_t *&p, uint64_t &i, int64_t &exponent) {
+  // we continue with the fiction that we have an integer. If the
+  // floating point number is representable as x * 10^z for some integer
+  // z that fits in 53 bits, then we will be able to convert back the
+  // the integer into a float in a lossless manner.
+  const uint8_t *const first_after_period = p;
+
+#ifdef SWAR_NUMBER_PARSING
+  // this helps if we have lots of decimals!
+  // this turns out to be frequent enough.
+  if (is_made_of_eight_digits_fast(p)) {
+    i = i * 100000000 + parse_eight_digits_unrolled(p);
+    p += 8;
+  }
+#endif
+  // Unrolling the first digit makes a small difference on some implementations (e.g. westmere)
+  if (parse_digit(*p, i)) { ++p; }
+  while (parse_digit(*p, i)) { p++; }
+  exponent = first_after_period - p;
+  // Decimal without digits (123.) is illegal
+  if (exponent == 0) {
+    return INVALID_NUMBER(src);
+  }
+  return true;
+}
+
+really_inline bool parse_exponent(UNUSED const uint8_t *const src, const uint8_t *&p, int64_t &exponent) {
+  // Exp Sign: -123.456e[-]78
+  bool neg_exp = ('-' == *p);
+  if (neg_exp || '+' == *p) { p++; } // Skip + as well
+
+  // Exponent: -123.456e-[78]
+  auto start_exp = p;
+  int64_t exp_number = 0;
+  while (parse_digit(*p, exp_number)) { ++p; }
+  exponent += (neg_exp ? -exp_number : exp_number);
+
+  // If there were no digits, it's an error.
+  // If there were more than 18 digits, we may have overflowed the integer.
+  if (unlikely(p == start_exp || p > start_exp+18)) {
+    // Skip leading zeroes: 1e000000000000000000001 is technically valid and doesn't overflow
+    while (*start_exp == '0') { start_exp++; }
+    // 19 digits could overflow int64_t and is kind of absurd anyway. We don't
+    // support exponents smaller than -9,999,999,999,999,999,999 and bigger
+    // than 9,999,999,999,999,999,999.
+    if (p == start_exp || p > start_exp+18) { return INVALID_NUMBER(src); }
+  }
+  return true;
+}
+
+template<typename W>
+really_inline bool write_float(const uint8_t *const src, bool negative, uint64_t i, const uint8_t * start_digits, int digit_count, int64_t exponent, W &writer) {
+  // If we frequently had to deal with long strings of digits,
+  // we could extend our code by using a 128-bit integer instead
+  // of a 64-bit integer. However, this is uncommon in practice.
+  // digit count is off by 1 because of the decimal (assuming there was one).
+  if (unlikely((digit_count-1 >= 19))) { // this is uncommon
+    // It is possible that the integer had an overflow.
+    // We have to handle the case where we have 0.0000somenumber.
+    const uint8_t *start = start_digits;
+    while ((*start == '0') || (*start == '.')) {
+      start++;
+    }
+    // we over-decrement by one when there is a '.'
+    digit_count -= int(start - start_digits);
+    if (digit_count >= 19) {
+      // Ok, chances are good that we had an overflow!
+      // this is almost never going to get called!!!
+      // we start anew, going slowly!!!
+      // This will happen in the following examples:
+      // 10000000000000000000000000000000000000000000e+308
+      // 3.1415926535897932384626433832795028841971693993751
+      //
+      bool success = slow_float_parsing(src, writer);
+      // The number was already written, but we made a copy of the writer
+      // when we passed it to the parse_large_integer() function, so
+      writer.skip_double();
+      return success;
+    }
+  }
+  // NOTE: it's weird that the unlikely() only wraps half the if, but it seems to get slower any other
+  // way we've tried: https://github.com/simdjson/simdjson/pull/990#discussion_r448497331
+  // To future reader: we'd love if someone found a better way, or at least could explain this result!
+  if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) || (exponent > FASTFLOAT_LARGEST_POWER)) {
+    // this is almost never going to get called!!!
+    // we start anew, going slowly!!!
+    bool success = slow_float_parsing(src, writer);
+    // The number was already written, but we made a copy of the writer when we passed it to the
+    // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
+    writer.skip_double();
+    return success;
+  }
+  bool success = true;
+  double d = compute_float_64(exponent, i, negative, &success);
+  if (!success) {
+    // we are almost never going to get here.
+    if (!parse_float_strtod(src, &d)) { return INVALID_NUMBER(src); }
+  }
+  WRITE_DOUBLE(d, src, writer);
+  return true;
+}
+
+// for performance analysis, it is sometimes  useful to skip parsing
+#ifdef SIMDJSON_SKIPNUMBERPARSING
+
+template<typename W>
+really_inline bool parse_number(const uint8_t *const, W &writer) {
+  writer.append_s64(0);        // always write zero
+  return true;                 // always succeeds
+}
+
+#else
 
 // parse the number at src
 // define JSON_TEST_NUMBERS for unit testing
@@ -4385,217 +4369,84 @@ bool slow_float_parsing(UNUSED const char * src, W writer) {
 //
 // Our objective is accurate parsing (ULP of 0) at high speed.
 template<typename W>
-really_inline bool parse_number(UNUSED const uint8_t *const src,
-                                UNUSED bool found_minus,
-                                W &writer) {
-#ifdef SIMDJSON_SKIPNUMBERPARSING // for performance analysis, it is sometimes
-                                  // useful to skip parsing
-  writer.append_s64(0);        // always write zero
-  return true;                    // always succeeds
-#else
-  const char *p = reinterpret_cast<const char *>(src);
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-    if (!is_integer(*p)) { // a negative sign must be followed by an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-  }
-  const char *const start_digits = p;
+really_inline bool parse_number(const uint8_t *const src, W &writer) {
 
-  uint64_t i;      // an unsigned int avoids signed overflows (which are bad)
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    if (is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    i = 0;
-  } else {
-    if (!(is_integer(*p))) { // must start with an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      // a multiplication by 10 is cheaper than an arbitrary integer
-      // multiplication
-      i = 10 * i + digit; // might overflow, we will handle the overflow later
-      ++p;
-    }
-  }
+  //
+  // Check for minus sign
+  //
+  bool negative = (*src == '-');
+  const uint8_t *p = src + negative;
+
+  //
+  // Parse the integer part.
+  //
+  // PERF NOTE: we don't use is_made_of_eight_digits_fast because large integers like 123456789 are rare
+  const uint8_t *const start_digits = p;
+  uint64_t i = 0;
+  while (parse_digit(*p, i)) { p++; }
+
+  // If there were no digits, or if the integer starts with 0 and has more than one digit, it's an error.
+  int digit_count = int(p - start_digits);
+  if (digit_count == 0 || ('0' == *start_digits && digit_count > 1)) { return INVALID_NUMBER(src); }
+
+  //
+  // Handle floats if there is a . or e (or both)
+  //
   int64_t exponent = 0;
   bool is_float = false;
   if ('.' == *p) {
-    is_float = true; // At this point we know that we have a float
-    // we continue with the fiction that we have an integer. If the
-    // floating point number is representable as x * 10^z for some integer
-    // z that fits in 53 bits, then we will be able to convert back the
-    // the integer into a float in a lossless manner.
+    is_float = true;
     ++p;
-    const char *const first_after_period = p;
-    if (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // might overflow + multiplication by 10 is likely
-                          // cheaper than arbitrary mult.
-      // we will handle the overflow later
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-#ifdef SWAR_NUMBER_PARSING
-    // this helps if we have lots of decimals!
-    // this turns out to be frequent enough.
-    if (is_made_of_eight_digits_fast(p)) {
-      i = i * 100000000 + parse_eight_digits_unrolled(p);
-      p += 8;
-    }
-#endif
-    while (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // in rare cases, this will overflow, but that's ok
-                          // because we have parse_highprecision_float later.
-    }
-    exponent = first_after_period - p;
+    if (!parse_decimal(src, p, i, exponent)) { return false; }
+    digit_count = int(p - start_digits); // used later to guard against overflows
   }
-  int digit_count =
-      int(p - start_digits) - 1; // used later to guard against overflows
-  int64_t exp_number = 0;   // exponential part
   if (('e' == *p) || ('E' == *p)) {
     is_float = true;
     ++p;
-    bool neg_exp = false;
-    if ('-' == *p) {
-      neg_exp = true;
-      ++p;
-    } else if ('+' == *p) {
-      ++p;
-    }
-    if (!is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    exp_number = digit;
-    p++;
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    while (is_integer(*p)) {
-      if (exp_number > 0x100000000) { // we need to check for overflows
-                                      // we refuse to parse this
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false;
-      }
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    exponent += (neg_exp ? -exp_number : exp_number);
+    if (!parse_exponent(src, p, exponent)) { return false; }
   }
   if (is_float) {
-    // If we frequently had to deal with long strings of digits,
-    // we could extend our code by using a 128-bit integer instead
-    // of a 64-bit integer. However, this is uncommon in practice.
-    if (unlikely((digit_count >= 19))) { // this is uncommon
-      // It is possible that the integer had an overflow.
-      // We have to handle the case where we have 0.0000somenumber.
-      const char *start = start_digits;
-      while ((*start == '0') || (*start == '.')) {
-        start++;
+    return write_float(src, negative, i, start_digits, digit_count, exponent, writer);
+  }
+
+  // The longest negative 64-bit number is 19 digits.
+  // The longest positive 64-bit number is 20 digits.
+  // We do it this way so we don't trigger this branch unless we must.
+  int longest_digit_count = negative ? 19 : 20;
+  if (digit_count > longest_digit_count) { return INVALID_NUMBER(src); }
+  if (digit_count == longest_digit_count) {
+    if(negative) {
+      // Anything negative above INT64_MAX+1 is invalid
+      if (i > uint64_t(INT64_MAX)+1) {
+        return INVALID_NUMBER(src); 
       }
-      // we over-decrement by one when there is a '.'
-      digit_count -= int(start - start_digits);
-      if (digit_count >= 19) {
-        // Ok, chances are good that we had an overflow!
-        // this is almost never going to get called!!!
-        // we start anew, going slowly!!!
-        // This will happen in the following examples:
-        // 10000000000000000000000000000000000000000000e+308
-        // 3.1415926535897932384626433832795028841971693993751
-        //
-        bool success = slow_float_parsing((const char *) src, writer);
-        // The number was already written, but we made a copy of the writer
-        // when we passed it to the parse_large_integer() function, so
-        writer.skip_double();
-        return success;
-      }
-    }
-    if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) ||
-        (exponent > FASTFLOAT_LARGEST_POWER)) { // this is uncommon!!!
-      // this is almost never going to get called!!!
-      // we start anew, going slowly!!!
-      bool success = slow_float_parsing((const char *) src, writer);
-      // The number was already written, but we made a copy of the writer when we passed it to the
-      // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
-      writer.skip_double();
-      return success;
-    }
-    bool success = true;
-    double d = compute_float_64(exponent, i, negative, &success);
-    if (!success) {
-      // we are almost never going to get here.
-      success = parse_float_strtod((const char *)src, &d);
-    }
-    if (success) {
-      writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_float(d, src);
-#endif
-      return true;
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
+      WRITE_INTEGER(~i+1, src, writer);
+      return is_structural_or_whitespace(*p);
+    // Positive overflow check:
+    // - A 20 digit number starting with 2-9 is overflow, because 18,446,744,073,709,551,615 is the
+    //   biggest uint64_t.
+    // - A 20 digit number starting with 1 is overflow if it is less than INT64_MAX.
+    //   If we got here, it's a 20 digit number starting with the digit "1".
+    // - If a 20 digit number starting with 1 overflowed (i*10+digit), the result will be smaller
+    //   than 1,553,255,926,290,448,384.
+    // - That is smaller than the smallest possible 20-digit number the user could write:
+    //   10,000,000,000,000,000,000.
+    // - Therefore, if the number is positive and lower than that, it's overflow.
+    // - The value we are looking at is less than or equal to 9,223,372,036,854,775,808 (INT64_MAX).
+    //
+    }  else if (src[0] != uint8_t('1') || i <= uint64_t(INT64_MAX)) { return INVALID_NUMBER(src); }
+  }
+
+  // Write unsigned if it doesn't fit in a signed integer.
+  if (i > uint64_t(INT64_MAX)) {
+    WRITE_UNSIGNED(i, src, writer);
   } else {
-    if (unlikely(digit_count >= 18)) { // this is uncommon!!!
-      // there is a good chance that we had an overflow, so we need
-      // need to recover: we parse the whole thing again.
-      bool success = parse_large_integer(src, writer, found_minus);
-      // The number was already written, but we made a copy of the writer
-      // when we passed it to the parse_large_integer() function, so
-      writer.skip_large_integer();
-      return success;
-    }
-    i = negative ? 0 - i : i;
-    writer.append_s64(i);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_integer(i, src);
-#endif
+    WRITE_INTEGER(negative ? (~i+1) : i, src, writer);
   }
   return is_structural_or_whitespace(*p);
-#endif // SIMDJSON_SKIPNUMBERPARSING
 }
+
+#endif // SIMDJSON_SKIPNUMBERPARSING
 
 } // namespace numberparsing
 } // namespace stage2
@@ -4680,15 +4531,26 @@ namespace logger {
 namespace stage2 {
 namespace atomparsing {
 
-really_inline uint32_t string_to_uint32(const char* str) { return *reinterpret_cast<const uint32_t *>(str); }
+namespace{
+// The string_to_uint32 is exclusively used to map literal strings to 32-bit values.
+// We use memcpy instead of a pointer cast to avoid undefined behaviors since we cannot
+// be certain that the character pointer will be properly aligned.
+// You might think that using memcpy makes this function expensive, but you'd be wrong.
+// All decent optimizing compilers (GCC, clang, Visual Studio) will compile string_to_uint32("false");
+// to the compile-time constant 1936482662.
+really_inline uint32_t string_to_uint32(const char* str) { uint32_t val; std::memcpy(&val, str, sizeof(uint32_t)); return val; }
 
+
+// Again in str4ncmp we use a memcpy to avoid undefined behavior. The memcpy may appear expensive.
+// Yet all decent optimizing compilers will compile memcpy to a single instruction, just about.
 WARN_UNUSED
 really_inline uint32_t str4ncmp(const uint8_t *src, const char* atom) {
-  uint32_t srcval; // we want to avoid unaligned 64-bit loads (undefined in C/C++)
+  uint32_t srcval; // we want to avoid unaligned 32-bit loads (undefined in C/C++)
   static_assert(sizeof(uint32_t) <= SIMDJSON_PADDING, "SIMDJSON_PADDING must be larger than 4 bytes");
   std::memcpy(&srcval, src, sizeof(uint32_t));
   return srcval ^ string_to_uint32(atom);
 }
+} // anonymous namespace
 
 WARN_UNUSED
 really_inline bool is_valid_true_atom(const uint8_t *src) {
@@ -4763,31 +4625,7 @@ public:
   really_inline size_t remaining_len() {
     return parser.len - *current_structural;
   }
-  template<typename F>
-  really_inline bool with_space_terminated_copy(const F& f) {
-    /**
-    * We need to make a copy to make sure that the string is space terminated.
-    * This is not about padding the input, which should already padded up
-    * to len + SIMDJSON_PADDING. However, we have no control at this stage
-    * on how the padding was done. What if the input string was padded with nulls?
-    * It is quite common for an input string to have an extra null character (C string).
-    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
-    * document, but the string "9\0" by itself is fine. So we make a copy and
-    * pad the input with spaces when we know that there is just one input element.
-    * This copy is relatively expensive, but it will almost never be called in
-    * practice unless you are in the strange scenario where you have many JSON
-    * documents made of single atoms.
-    */
-    char *copy = static_cast<char *>(malloc(parser.len + SIMDJSON_PADDING));
-    if (copy == nullptr) {
-      return true;
-    }
-    memcpy(copy, buf, parser.len);
-    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
-    bool result = f(reinterpret_cast<const uint8_t*>(copy), *current_structural);
-    free(copy);
-    return result;
-  }
+
   really_inline bool past_end(uint32_t n_structural_indexes) {
     return current_structural >= &parser.structural_indexes[n_structural_indexes];
   }
@@ -5059,16 +4897,41 @@ struct structural_parser : structural_iterator {
     return false;
   }
 
-  WARN_UNUSED really_inline bool parse_number(const uint8_t *src, bool found_minus) {
+  WARN_UNUSED really_inline bool parse_number(const uint8_t *src) {
     log_value("number");
-    bool succeeded = numberparsing::parse_number(src, found_minus, tape);
+    bool succeeded = numberparsing::parse_number(src, tape);
     if (!succeeded) { log_error("Invalid number"); }
     return !succeeded;
   }
-  WARN_UNUSED really_inline bool parse_number(bool found_minus) {
-    return parse_number(current(), found_minus);
+  WARN_UNUSED really_inline bool parse_number() {
+    return parse_number(current());
   }
 
+  really_inline bool parse_number_with_space_terminated_copy() {
+    /**
+    * We need to make a copy to make sure that the string is space terminated.
+    * This is not about padding the input, which should already padded up
+    * to len + SIMDJSON_PADDING. However, we have no control at this stage
+    * on how the padding was done. What if the input string was padded with nulls?
+    * It is quite common for an input string to have an extra null character (C string).
+    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
+    * document, but the string "9\0" by itself is fine. So we make a copy and
+    * pad the input with spaces when we know that there is just one input element.
+    * This copy is relatively expensive, but it will almost never be called in
+    * practice unless you are in the strange scenario where you have many JSON
+    * documents made of single atoms.
+    */
+    uint8_t *copy = static_cast<uint8_t *>(malloc(parser.len + SIMDJSON_PADDING));
+    if (copy == nullptr) {
+      return true;
+    }
+    memcpy(copy, buf, parser.len);
+    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
+    size_t idx = *current_structural;
+    bool result = parse_number(&copy[idx]); // parse_number does not throw
+    free(copy);
+    return result;
+  }
   WARN_UNUSED really_inline ret_address_t parse_value(const unified_machine_addresses &addresses, ret_address_t continue_state) {
     switch (advance_char()) {
     case '"':
@@ -5089,12 +4952,10 @@ struct structural_parser : structural_iterator {
       FAIL_IF( !atomparsing::is_valid_null_atom(current()) );
       tape.append(0, internal::tape_type::NULL_VALUE);
       return continue_state;
+    case '-':
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
-      FAIL_IF( parse_number(false) );
-      return continue_state;
-    case '-':
-      FAIL_IF( parse_number(true) );
+      FAIL_IF( parse_number() );
       return continue_state;
     case '{':
       FAIL_IF( start_object(continue_state) );
@@ -5206,6 +5067,7 @@ struct structural_parser : structural_iterator {
 #undef FAIL_IF
 #define FAIL_IF(EXPR) { if (EXPR) { goto error; } }
 
+
 template<bool STREAMING>
 WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_parser, dom::document &doc) noexcept {
   dom_parser.doc = &doc;
@@ -5249,20 +5111,13 @@ WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_p
     FAIL_IF( !atomparsing::is_valid_null_atom(parser.current(), parser.remaining_len()) );
     parser.tape.append(0, internal::tape_type::NULL_VALUE);
     goto finish;
+  case '-':
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], false);
-      })
-    );
-    goto finish;
-  case '-':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], true);
-      })
-    );
+    // Next line used to be an interesting functional programming exercise with
+    // a lambda that gets passed to another function via a closure. This would confuse the
+    // clangcl compiler under Visual Studio 2019 (recent release).
+    FAIL_IF(parser.parse_number_with_space_terminated_copy());
     goto finish;
   default:
     parser.log_error("Document starts with a non-value character");
@@ -5560,7 +5415,7 @@ namespace stage1 {
   * complete document, therefore the last json buffer location is the end of the
   * batch.
   */
-really_inline static uint32_t find_next_document_index(dom_parser_implementation &parser) {
+really_inline uint32_t find_next_document_index(dom_parser_implementation &parser) {
   // TODO don't count separately, just figure out depth
   auto arr_cnt = 0;
   auto obj_cnt = 0;
@@ -5602,7 +5457,7 @@ really_inline static uint32_t find_next_document_index(dom_parser_implementation
 }
 
 // Skip the last character if it is partial
-really_inline static size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
+really_inline size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
   if (unlikely(len < 3)) {
     switch (len) {
       case 2:
@@ -6181,12 +6036,15 @@ void found_float(double result, const uint8_t *buf);
 
 namespace simdjson {
 namespace fallback {
-static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
+static really_inline uint32_t parse_eight_digits_unrolled(const char *chars) {
   uint32_t result = 0;
   for (int i=0;i<8;i++) {
     result = result*10 + (chars[i] - '0');
   }
   return result;
+}
+static really_inline uint32_t parse_eight_digits_unrolled(const uint8_t *chars) {
+  return parse_eight_digits_unrolled((const char *)chars);
 }
 
 #define SWAR_NUMBER_PARSING
@@ -6195,14 +6053,25 @@ static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
 namespace stage2 {
 namespace numberparsing {
 
+#ifdef JSON_TEST_NUMBERS
+#define INVALID_NUMBER(SRC) (found_invalid_number((SRC)), false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) (found_integer((VALUE), (SRC)), writer.append_s64((VALUE)))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) (found_unsigned_integer((VALUE), (SRC)), writer.append_u64((VALUE)))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) (found_float((VALUE), (SRC)), writer.append_double((VALUE)))
+#else
+#define INVALID_NUMBER(SRC) (false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) writer.append_s64((VALUE))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) writer.append_u64((VALUE))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) writer.append_double((VALUE))
+#endif
+
 // Attempts to compute i * 10^(power) exactly; and if "negative" is
 // true, negate the result.
 // This function will only work in some cases, when it does not work, success is
 // set to false. This should work *most of the time* (like 99% of the time).
 // We assume that power is in the [FASTFLOAT_SMALLEST_POWER,
 // FASTFLOAT_LARGEST_POWER] interval: the caller is responsible for this check.
-really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
-                                      bool *success) {
+really_inline double compute_float_64(int64_t power, uint64_t i, bool negative, bool *success) {
   // we start with a fast path
   // It was described in
   // Clinger WD. How to read floating point numbers accurately.
@@ -6382,9 +6251,9 @@ really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
   return d;
 }
 
-static bool parse_float_strtod(const char *ptr, double *outDouble) {
+static bool parse_float_strtod(const uint8_t *ptr, double *outDouble) {
   char *endptr;
-  *outDouble = strtod(ptr, &endptr);
+  *outDouble = strtod((const char *)ptr, &endptr);
   // Some libraries will set errno = ERANGE when the value is subnormal,
   // yet we may want to be able to parse subnormal values.
   // However, we do not want to tolerate NAN or infinite values.
@@ -6405,22 +6274,16 @@ static bool parse_float_strtod(const char *ptr, double *outDouble) {
   // a float that does not fit in binary64. JSON for Modern C++ (nlohmann/json)
   // will flat out throw an exception.
   //
-  if ((endptr == ptr) || (!std::isfinite(*outDouble))) {
+  if ((endptr == (const char *)ptr) || (!std::isfinite(*outDouble))) {
     return false;
   }
   return true;
 }
 
-really_inline bool is_integer(char c) {
-  return (c >= '0' && c <= '9');
-  // this gets compiled to (uint8_t)(c - '0') <= 9 on all decent compilers
-}
-
-
 // check quickly whether the next 8 chars are made of digits
 // at a glance, it looks better than Mula's
 // http://0x80.pl/articles/swar-digits-validate.html
-really_inline bool is_made_of_eight_digits_fast(const char *chars) {
+really_inline bool is_made_of_eight_digits_fast(const uint8_t *chars) {
   uint64_t val;
   // this can read up to 7 bytes beyond the buffer size, but we require
   // SIMDJSON_PADDING of padding
@@ -6435,110 +6298,140 @@ really_inline bool is_made_of_eight_digits_fast(const char *chars) {
           0x3333333333333333);
 }
 
-// called by parse_number when we know that the output is an integer,
-// but where there might be some integer overflow.
-// we want to catch overflows!
-// Do not call this function directly as it skips some of the checks from
-// parse_number
-//
-// This function will almost never be called!!!
-//
 template<typename W>
-never_inline bool parse_large_integer(const uint8_t *const src,
-                                      W writer,
-                                      bool found_minus) {
-  const char *p = reinterpret_cast<const char *>(src);
-
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-  }
-  uint64_t i;
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    i = 0;
-  } else {
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      if (mul_overflow(i, 10, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      if (add_overflow(i, digit, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      ++p;
-    }
-  }
-  if (negative) {
-    if (i > 0x8000000000000000) {
-      // overflows!
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false; // overflow
-    } else if (i == 0x8000000000000000) {
-      // In two's complement, we cannot represent 0x8000000000000000
-      // as a positive signed integer, but the negative version is
-      // possible.
-      constexpr int64_t signed_answer = INT64_MIN;
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    } else {
-      // we can negate safely
-      int64_t signed_answer = -static_cast<int64_t>(i);
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    }
-  } else {
-    // we have a positive integer, the contract is that
-    // we try to represent it as a signed integer and only
-    // fallback on unsigned integers if absolutely necessary.
-    if (i < 0x8000000000000000) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(i, src);
-#endif
-      writer.append_s64(i);
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_unsigned_integer(i, src);
-#endif
-      writer.append_u64(i);
-    }
-  }
-  return is_structural_or_whitespace(*p);
-}
-
-template<typename W>
-bool slow_float_parsing(UNUSED const char * src, W writer) {
+bool slow_float_parsing(UNUSED const uint8_t * src, W writer) {
   double d;
   if (parse_float_strtod(src, &d)) {
-    writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_float(d, (const uint8_t *)src);
-#endif
+    WRITE_DOUBLE(d, src, writer);
     return true;
   }
-#ifdef JSON_TEST_NUMBERS // for unit testing
-  found_invalid_number((const uint8_t *)src);
-#endif
-  return false;
+  return INVALID_NUMBER(src);
 }
+
+template<typename I>
+NO_SANITIZE_UNDEFINED // We deliberately allow overflow here and check later
+really_inline bool parse_digit(const uint8_t c, I &i) {
+  const uint8_t digit = static_cast<uint8_t>(c - '0');
+  if (digit > 9) {
+    return false;
+  }
+  // PERF NOTE: multiplication by 10 is cheaper than arbitrary integer multiplication
+  i = 10 * i + digit; // might overflow, we will handle the overflow later
+  return true;
+}
+
+really_inline bool parse_decimal(UNUSED const uint8_t *const src, const uint8_t *&p, uint64_t &i, int64_t &exponent) {
+  // we continue with the fiction that we have an integer. If the
+  // floating point number is representable as x * 10^z for some integer
+  // z that fits in 53 bits, then we will be able to convert back the
+  // the integer into a float in a lossless manner.
+  const uint8_t *const first_after_period = p;
+
+#ifdef SWAR_NUMBER_PARSING
+  // this helps if we have lots of decimals!
+  // this turns out to be frequent enough.
+  if (is_made_of_eight_digits_fast(p)) {
+    i = i * 100000000 + parse_eight_digits_unrolled(p);
+    p += 8;
+  }
+#endif
+  // Unrolling the first digit makes a small difference on some implementations (e.g. westmere)
+  if (parse_digit(*p, i)) { ++p; }
+  while (parse_digit(*p, i)) { p++; }
+  exponent = first_after_period - p;
+  // Decimal without digits (123.) is illegal
+  if (exponent == 0) {
+    return INVALID_NUMBER(src);
+  }
+  return true;
+}
+
+really_inline bool parse_exponent(UNUSED const uint8_t *const src, const uint8_t *&p, int64_t &exponent) {
+  // Exp Sign: -123.456e[-]78
+  bool neg_exp = ('-' == *p);
+  if (neg_exp || '+' == *p) { p++; } // Skip + as well
+
+  // Exponent: -123.456e-[78]
+  auto start_exp = p;
+  int64_t exp_number = 0;
+  while (parse_digit(*p, exp_number)) { ++p; }
+  exponent += (neg_exp ? -exp_number : exp_number);
+
+  // If there were no digits, it's an error.
+  // If there were more than 18 digits, we may have overflowed the integer.
+  if (unlikely(p == start_exp || p > start_exp+18)) {
+    // Skip leading zeroes: 1e000000000000000000001 is technically valid and doesn't overflow
+    while (*start_exp == '0') { start_exp++; }
+    // 19 digits could overflow int64_t and is kind of absurd anyway. We don't
+    // support exponents smaller than -9,999,999,999,999,999,999 and bigger
+    // than 9,999,999,999,999,999,999.
+    if (p == start_exp || p > start_exp+18) { return INVALID_NUMBER(src); }
+  }
+  return true;
+}
+
+template<typename W>
+really_inline bool write_float(const uint8_t *const src, bool negative, uint64_t i, const uint8_t * start_digits, int digit_count, int64_t exponent, W &writer) {
+  // If we frequently had to deal with long strings of digits,
+  // we could extend our code by using a 128-bit integer instead
+  // of a 64-bit integer. However, this is uncommon in practice.
+  // digit count is off by 1 because of the decimal (assuming there was one).
+  if (unlikely((digit_count-1 >= 19))) { // this is uncommon
+    // It is possible that the integer had an overflow.
+    // We have to handle the case where we have 0.0000somenumber.
+    const uint8_t *start = start_digits;
+    while ((*start == '0') || (*start == '.')) {
+      start++;
+    }
+    // we over-decrement by one when there is a '.'
+    digit_count -= int(start - start_digits);
+    if (digit_count >= 19) {
+      // Ok, chances are good that we had an overflow!
+      // this is almost never going to get called!!!
+      // we start anew, going slowly!!!
+      // This will happen in the following examples:
+      // 10000000000000000000000000000000000000000000e+308
+      // 3.1415926535897932384626433832795028841971693993751
+      //
+      bool success = slow_float_parsing(src, writer);
+      // The number was already written, but we made a copy of the writer
+      // when we passed it to the parse_large_integer() function, so
+      writer.skip_double();
+      return success;
+    }
+  }
+  // NOTE: it's weird that the unlikely() only wraps half the if, but it seems to get slower any other
+  // way we've tried: https://github.com/simdjson/simdjson/pull/990#discussion_r448497331
+  // To future reader: we'd love if someone found a better way, or at least could explain this result!
+  if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) || (exponent > FASTFLOAT_LARGEST_POWER)) {
+    // this is almost never going to get called!!!
+    // we start anew, going slowly!!!
+    bool success = slow_float_parsing(src, writer);
+    // The number was already written, but we made a copy of the writer when we passed it to the
+    // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
+    writer.skip_double();
+    return success;
+  }
+  bool success = true;
+  double d = compute_float_64(exponent, i, negative, &success);
+  if (!success) {
+    // we are almost never going to get here.
+    if (!parse_float_strtod(src, &d)) { return INVALID_NUMBER(src); }
+  }
+  WRITE_DOUBLE(d, src, writer);
+  return true;
+}
+
+// for performance analysis, it is sometimes  useful to skip parsing
+#ifdef SIMDJSON_SKIPNUMBERPARSING
+
+template<typename W>
+really_inline bool parse_number(const uint8_t *const, W &writer) {
+  writer.append_s64(0);        // always write zero
+  return true;                 // always succeeds
+}
+
+#else
 
 // parse the number at src
 // define JSON_TEST_NUMBERS for unit testing
@@ -6550,217 +6443,84 @@ bool slow_float_parsing(UNUSED const char * src, W writer) {
 //
 // Our objective is accurate parsing (ULP of 0) at high speed.
 template<typename W>
-really_inline bool parse_number(UNUSED const uint8_t *const src,
-                                UNUSED bool found_minus,
-                                W &writer) {
-#ifdef SIMDJSON_SKIPNUMBERPARSING // for performance analysis, it is sometimes
-                                  // useful to skip parsing
-  writer.append_s64(0);        // always write zero
-  return true;                    // always succeeds
-#else
-  const char *p = reinterpret_cast<const char *>(src);
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-    if (!is_integer(*p)) { // a negative sign must be followed by an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-  }
-  const char *const start_digits = p;
+really_inline bool parse_number(const uint8_t *const src, W &writer) {
 
-  uint64_t i;      // an unsigned int avoids signed overflows (which are bad)
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    if (is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    i = 0;
-  } else {
-    if (!(is_integer(*p))) { // must start with an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      // a multiplication by 10 is cheaper than an arbitrary integer
-      // multiplication
-      i = 10 * i + digit; // might overflow, we will handle the overflow later
-      ++p;
-    }
-  }
+  //
+  // Check for minus sign
+  //
+  bool negative = (*src == '-');
+  const uint8_t *p = src + negative;
+
+  //
+  // Parse the integer part.
+  //
+  // PERF NOTE: we don't use is_made_of_eight_digits_fast because large integers like 123456789 are rare
+  const uint8_t *const start_digits = p;
+  uint64_t i = 0;
+  while (parse_digit(*p, i)) { p++; }
+
+  // If there were no digits, or if the integer starts with 0 and has more than one digit, it's an error.
+  int digit_count = int(p - start_digits);
+  if (digit_count == 0 || ('0' == *start_digits && digit_count > 1)) { return INVALID_NUMBER(src); }
+
+  //
+  // Handle floats if there is a . or e (or both)
+  //
   int64_t exponent = 0;
   bool is_float = false;
   if ('.' == *p) {
-    is_float = true; // At this point we know that we have a float
-    // we continue with the fiction that we have an integer. If the
-    // floating point number is representable as x * 10^z for some integer
-    // z that fits in 53 bits, then we will be able to convert back the
-    // the integer into a float in a lossless manner.
+    is_float = true;
     ++p;
-    const char *const first_after_period = p;
-    if (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // might overflow + multiplication by 10 is likely
-                          // cheaper than arbitrary mult.
-      // we will handle the overflow later
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-#ifdef SWAR_NUMBER_PARSING
-    // this helps if we have lots of decimals!
-    // this turns out to be frequent enough.
-    if (is_made_of_eight_digits_fast(p)) {
-      i = i * 100000000 + parse_eight_digits_unrolled(p);
-      p += 8;
-    }
-#endif
-    while (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // in rare cases, this will overflow, but that's ok
-                          // because we have parse_highprecision_float later.
-    }
-    exponent = first_after_period - p;
+    if (!parse_decimal(src, p, i, exponent)) { return false; }
+    digit_count = int(p - start_digits); // used later to guard against overflows
   }
-  int digit_count =
-      int(p - start_digits) - 1; // used later to guard against overflows
-  int64_t exp_number = 0;   // exponential part
   if (('e' == *p) || ('E' == *p)) {
     is_float = true;
     ++p;
-    bool neg_exp = false;
-    if ('-' == *p) {
-      neg_exp = true;
-      ++p;
-    } else if ('+' == *p) {
-      ++p;
-    }
-    if (!is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    exp_number = digit;
-    p++;
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    while (is_integer(*p)) {
-      if (exp_number > 0x100000000) { // we need to check for overflows
-                                      // we refuse to parse this
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false;
-      }
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    exponent += (neg_exp ? -exp_number : exp_number);
+    if (!parse_exponent(src, p, exponent)) { return false; }
   }
   if (is_float) {
-    // If we frequently had to deal with long strings of digits,
-    // we could extend our code by using a 128-bit integer instead
-    // of a 64-bit integer. However, this is uncommon in practice.
-    if (unlikely((digit_count >= 19))) { // this is uncommon
-      // It is possible that the integer had an overflow.
-      // We have to handle the case where we have 0.0000somenumber.
-      const char *start = start_digits;
-      while ((*start == '0') || (*start == '.')) {
-        start++;
+    return write_float(src, negative, i, start_digits, digit_count, exponent, writer);
+  }
+
+  // The longest negative 64-bit number is 19 digits.
+  // The longest positive 64-bit number is 20 digits.
+  // We do it this way so we don't trigger this branch unless we must.
+  int longest_digit_count = negative ? 19 : 20;
+  if (digit_count > longest_digit_count) { return INVALID_NUMBER(src); }
+  if (digit_count == longest_digit_count) {
+    if(negative) {
+      // Anything negative above INT64_MAX+1 is invalid
+      if (i > uint64_t(INT64_MAX)+1) {
+        return INVALID_NUMBER(src); 
       }
-      // we over-decrement by one when there is a '.'
-      digit_count -= int(start - start_digits);
-      if (digit_count >= 19) {
-        // Ok, chances are good that we had an overflow!
-        // this is almost never going to get called!!!
-        // we start anew, going slowly!!!
-        // This will happen in the following examples:
-        // 10000000000000000000000000000000000000000000e+308
-        // 3.1415926535897932384626433832795028841971693993751
-        //
-        bool success = slow_float_parsing((const char *) src, writer);
-        // The number was already written, but we made a copy of the writer
-        // when we passed it to the parse_large_integer() function, so
-        writer.skip_double();
-        return success;
-      }
-    }
-    if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) ||
-        (exponent > FASTFLOAT_LARGEST_POWER)) { // this is uncommon!!!
-      // this is almost never going to get called!!!
-      // we start anew, going slowly!!!
-      bool success = slow_float_parsing((const char *) src, writer);
-      // The number was already written, but we made a copy of the writer when we passed it to the
-      // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
-      writer.skip_double();
-      return success;
-    }
-    bool success = true;
-    double d = compute_float_64(exponent, i, negative, &success);
-    if (!success) {
-      // we are almost never going to get here.
-      success = parse_float_strtod((const char *)src, &d);
-    }
-    if (success) {
-      writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_float(d, src);
-#endif
-      return true;
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
+      WRITE_INTEGER(~i+1, src, writer);
+      return is_structural_or_whitespace(*p);
+    // Positive overflow check:
+    // - A 20 digit number starting with 2-9 is overflow, because 18,446,744,073,709,551,615 is the
+    //   biggest uint64_t.
+    // - A 20 digit number starting with 1 is overflow if it is less than INT64_MAX.
+    //   If we got here, it's a 20 digit number starting with the digit "1".
+    // - If a 20 digit number starting with 1 overflowed (i*10+digit), the result will be smaller
+    //   than 1,553,255,926,290,448,384.
+    // - That is smaller than the smallest possible 20-digit number the user could write:
+    //   10,000,000,000,000,000,000.
+    // - Therefore, if the number is positive and lower than that, it's overflow.
+    // - The value we are looking at is less than or equal to 9,223,372,036,854,775,808 (INT64_MAX).
+    //
+    }  else if (src[0] != uint8_t('1') || i <= uint64_t(INT64_MAX)) { return INVALID_NUMBER(src); }
+  }
+
+  // Write unsigned if it doesn't fit in a signed integer.
+  if (i > uint64_t(INT64_MAX)) {
+    WRITE_UNSIGNED(i, src, writer);
   } else {
-    if (unlikely(digit_count >= 18)) { // this is uncommon!!!
-      // there is a good chance that we had an overflow, so we need
-      // need to recover: we parse the whole thing again.
-      bool success = parse_large_integer(src, writer, found_minus);
-      // The number was already written, but we made a copy of the writer
-      // when we passed it to the parse_large_integer() function, so
-      writer.skip_large_integer();
-      return success;
-    }
-    i = negative ? 0 - i : i;
-    writer.append_s64(i);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_integer(i, src);
-#endif
+    WRITE_INTEGER(negative ? (~i+1) : i, src, writer);
   }
   return is_structural_or_whitespace(*p);
-#endif // SIMDJSON_SKIPNUMBERPARSING
 }
+
+#endif // SIMDJSON_SKIPNUMBERPARSING
 
 } // namespace numberparsing
 } // namespace stage2
@@ -6846,15 +6606,26 @@ namespace logger {
 namespace stage2 {
 namespace atomparsing {
 
-really_inline uint32_t string_to_uint32(const char* str) { return *reinterpret_cast<const uint32_t *>(str); }
+namespace{
+// The string_to_uint32 is exclusively used to map literal strings to 32-bit values.
+// We use memcpy instead of a pointer cast to avoid undefined behaviors since we cannot
+// be certain that the character pointer will be properly aligned.
+// You might think that using memcpy makes this function expensive, but you'd be wrong.
+// All decent optimizing compilers (GCC, clang, Visual Studio) will compile string_to_uint32("false");
+// to the compile-time constant 1936482662.
+really_inline uint32_t string_to_uint32(const char* str) { uint32_t val; std::memcpy(&val, str, sizeof(uint32_t)); return val; }
 
+
+// Again in str4ncmp we use a memcpy to avoid undefined behavior. The memcpy may appear expensive.
+// Yet all decent optimizing compilers will compile memcpy to a single instruction, just about.
 WARN_UNUSED
 really_inline uint32_t str4ncmp(const uint8_t *src, const char* atom) {
-  uint32_t srcval; // we want to avoid unaligned 64-bit loads (undefined in C/C++)
+  uint32_t srcval; // we want to avoid unaligned 32-bit loads (undefined in C/C++)
   static_assert(sizeof(uint32_t) <= SIMDJSON_PADDING, "SIMDJSON_PADDING must be larger than 4 bytes");
   std::memcpy(&srcval, src, sizeof(uint32_t));
   return srcval ^ string_to_uint32(atom);
 }
+} // anonymous namespace
 
 WARN_UNUSED
 really_inline bool is_valid_true_atom(const uint8_t *src) {
@@ -6929,31 +6700,7 @@ public:
   really_inline size_t remaining_len() {
     return parser.len - *current_structural;
   }
-  template<typename F>
-  really_inline bool with_space_terminated_copy(const F& f) {
-    /**
-    * We need to make a copy to make sure that the string is space terminated.
-    * This is not about padding the input, which should already padded up
-    * to len + SIMDJSON_PADDING. However, we have no control at this stage
-    * on how the padding was done. What if the input string was padded with nulls?
-    * It is quite common for an input string to have an extra null character (C string).
-    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
-    * document, but the string "9\0" by itself is fine. So we make a copy and
-    * pad the input with spaces when we know that there is just one input element.
-    * This copy is relatively expensive, but it will almost never be called in
-    * practice unless you are in the strange scenario where you have many JSON
-    * documents made of single atoms.
-    */
-    char *copy = static_cast<char *>(malloc(parser.len + SIMDJSON_PADDING));
-    if (copy == nullptr) {
-      return true;
-    }
-    memcpy(copy, buf, parser.len);
-    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
-    bool result = f(reinterpret_cast<const uint8_t*>(copy), *current_structural);
-    free(copy);
-    return result;
-  }
+
   really_inline bool past_end(uint32_t n_structural_indexes) {
     return current_structural >= &parser.structural_indexes[n_structural_indexes];
   }
@@ -7225,16 +6972,41 @@ struct structural_parser : structural_iterator {
     return false;
   }
 
-  WARN_UNUSED really_inline bool parse_number(const uint8_t *src, bool found_minus) {
+  WARN_UNUSED really_inline bool parse_number(const uint8_t *src) {
     log_value("number");
-    bool succeeded = numberparsing::parse_number(src, found_minus, tape);
+    bool succeeded = numberparsing::parse_number(src, tape);
     if (!succeeded) { log_error("Invalid number"); }
     return !succeeded;
   }
-  WARN_UNUSED really_inline bool parse_number(bool found_minus) {
-    return parse_number(current(), found_minus);
+  WARN_UNUSED really_inline bool parse_number() {
+    return parse_number(current());
   }
 
+  really_inline bool parse_number_with_space_terminated_copy() {
+    /**
+    * We need to make a copy to make sure that the string is space terminated.
+    * This is not about padding the input, which should already padded up
+    * to len + SIMDJSON_PADDING. However, we have no control at this stage
+    * on how the padding was done. What if the input string was padded with nulls?
+    * It is quite common for an input string to have an extra null character (C string).
+    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
+    * document, but the string "9\0" by itself is fine. So we make a copy and
+    * pad the input with spaces when we know that there is just one input element.
+    * This copy is relatively expensive, but it will almost never be called in
+    * practice unless you are in the strange scenario where you have many JSON
+    * documents made of single atoms.
+    */
+    uint8_t *copy = static_cast<uint8_t *>(malloc(parser.len + SIMDJSON_PADDING));
+    if (copy == nullptr) {
+      return true;
+    }
+    memcpy(copy, buf, parser.len);
+    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
+    size_t idx = *current_structural;
+    bool result = parse_number(&copy[idx]); // parse_number does not throw
+    free(copy);
+    return result;
+  }
   WARN_UNUSED really_inline ret_address_t parse_value(const unified_machine_addresses &addresses, ret_address_t continue_state) {
     switch (advance_char()) {
     case '"':
@@ -7255,12 +7027,10 @@ struct structural_parser : structural_iterator {
       FAIL_IF( !atomparsing::is_valid_null_atom(current()) );
       tape.append(0, internal::tape_type::NULL_VALUE);
       return continue_state;
+    case '-':
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
-      FAIL_IF( parse_number(false) );
-      return continue_state;
-    case '-':
-      FAIL_IF( parse_number(true) );
+      FAIL_IF( parse_number() );
       return continue_state;
     case '{':
       FAIL_IF( start_object(continue_state) );
@@ -7372,6 +7142,7 @@ struct structural_parser : structural_iterator {
 #undef FAIL_IF
 #define FAIL_IF(EXPR) { if (EXPR) { goto error; } }
 
+
 template<bool STREAMING>
 WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_parser, dom::document &doc) noexcept {
   dom_parser.doc = &doc;
@@ -7415,20 +7186,13 @@ WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_p
     FAIL_IF( !atomparsing::is_valid_null_atom(parser.current(), parser.remaining_len()) );
     parser.tape.append(0, internal::tape_type::NULL_VALUE);
     goto finish;
+  case '-':
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], false);
-      })
-    );
-    goto finish;
-  case '-':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], true);
-      })
-    );
+    // Next line used to be an interesting functional programming exercise with
+    // a lambda that gets passed to another function via a closure. This would confuse the
+    // clangcl compiler under Visual Studio 2019 (recent release).
+    FAIL_IF(parser.parse_number_with_space_terminated_copy());
     goto finish;
   default:
     parser.log_error("Document starts with a non-value character");
@@ -8138,6 +7902,7 @@ namespace simd {
     really_inline simd8<bool> bits_not_set(simd8<uint8_t> bits) const { return (*this & bits).bits_not_set(); }
     really_inline simd8<bool> any_bits_set() const { return ~this->bits_not_set(); }
     really_inline simd8<bool> any_bits_set(simd8<uint8_t> bits) const { return ~this->bits_not_set(bits); }
+    really_inline bool is_ascii() const { return _mm256_movemask_epi8(*this) == 0; }
     really_inline bool bits_not_set_anywhere() const { return _mm256_testz_si256(*this, *this); }
     really_inline bool any_bits_set_anywhere() const { return !bits_not_set_anywhere(); }
     really_inline bool bits_not_set_anywhere(simd8<uint8_t> bits) const { return _mm256_testz_si256(*this, bits); }
@@ -8154,18 +7919,16 @@ namespace simd {
 
   template<typename T>
   struct simd8x64 {
-    static const int NUM_CHUNKS = 64 / sizeof(simd8<T>);
+    static constexpr int NUM_CHUNKS = 64 / sizeof(simd8<T>);
+    static_assert(NUM_CHUNKS == 2, "Haswell kernel should use two registers per 64-byte block.");
     const simd8<T> chunks[NUM_CHUNKS];
 
-    really_inline simd8x64() : chunks{simd8<T>(), simd8<T>()} {}
+    simd8x64(const simd8x64<T>& o) = delete; // no copy allowed
+    simd8x64<T>& operator=(const simd8<T> other) = delete; // no assignment allowed
+    simd8x64() = delete; // no default constructor allowed
+
     really_inline simd8x64(const simd8<T> chunk0, const simd8<T> chunk1) : chunks{chunk0, chunk1} {}
     really_inline simd8x64(const T ptr[64]) : chunks{simd8<T>::load(ptr), simd8<T>::load(ptr+32)} {}
-
-    template <typename F>
-    static really_inline void each_index(F const& each) {
-      each(0);
-      each(1);
-    }
 
     really_inline void compress(uint64_t mask, T * output) const {
       uint32_t mask1 = uint32_t(mask);
@@ -8179,55 +7942,38 @@ namespace simd {
       this->chunks[1].store(ptr+sizeof(simd8<T>)*1);
     }
 
-    template <typename F>
-    really_inline void each(F const& each_chunk) const
-    {
-      each_chunk(this->chunks[0]);
-      each_chunk(this->chunks[1]);
-    }
-
-    template <typename R=bool, typename F>
-    really_inline simd8x64<R> map(F const& map_chunk) const {
-      return simd8x64<R>(
-        map_chunk(this->chunks[0]),
-        map_chunk(this->chunks[1])
-      );
-    }
-
-    
-
-    template <typename R=bool, typename F>
-    really_inline simd8x64<R> map(const simd8x64<uint8_t> b, F const& map_chunk) const {
-      return simd8x64<R>(
-        map_chunk(this->chunks[0], b.chunks[0]),
-        map_chunk(this->chunks[1], b.chunks[1])
-      );
-    }
-
-    template <typename F>
-    really_inline simd8<T> reduce(F const& reduce_pair) const {
-      return reduce_pair(this->chunks[0], this->chunks[1]);
-    }
-
     really_inline uint64_t to_bitmask() const {
       uint64_t r_lo = uint32_t(this->chunks[0].to_bitmask());
       uint64_t r_hi =                       this->chunks[1].to_bitmask();
       return r_lo | (r_hi << 32);
     }
 
+    really_inline simd8<T> reduce_or() const {
+      return this->chunks[0] | this->chunks[1];
+    }
+
     really_inline simd8x64<T> bit_or(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a | mask; } );
+      return simd8x64<T>(
+        this->chunks[0] | mask,
+        this->chunks[1] | mask
+      );
     }
 
     really_inline uint64_t eq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a == mask; } ).to_bitmask();
+      return  simd8x64<bool>(
+        this->chunks[0] == mask,
+        this->chunks[1] == mask
+      ).to_bitmask();
     }
 
     really_inline uint64_t lteq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a <= mask; } ).to_bitmask();
+      return  simd8x64<bool>(
+        this->chunks[0] <= mask,
+        this->chunks[1] <= mask
+      ).to_bitmask();
     }
   }; // struct simd8x64<T>
 
@@ -8248,7 +7994,7 @@ namespace haswell {
 using namespace simd;
 
 struct json_character_block {
-  static really_inline json_character_block classify(const simd::simd8x64<uint8_t> in);
+  static really_inline json_character_block classify(const simd::simd8x64<uint8_t>& in);
 
   really_inline uint64_t whitespace() const { return _whitespace; }
   really_inline uint64_t op() const { return _op; }
@@ -8258,7 +8004,7 @@ struct json_character_block {
   uint64_t _op;
 };
 
-really_inline json_character_block json_character_block::classify(const simd::simd8x64<uint8_t> in) {
+really_inline json_character_block json_character_block::classify(const simd::simd8x64<uint8_t>& in) {
   // These lookups rely on the fact that anything < 127 will match the lower 4 bits, which is why
   // we can't use the generic lookup_16.
   auto whitespace_table = simd8<uint8_t>::repeat_16(' ', 100, 100, 100, 17, 100, 113, 2, 100, '\t', '\n', 112, 100, '\r', 100, 100);
@@ -8269,23 +8015,23 @@ really_inline json_character_block json_character_block::classify(const simd::si
   // hope that useless computations will be omitted. This is namely case when
   // minifying (we only need whitespace).
 
-  uint64_t whitespace = in.map([&](simd8<uint8_t> _in) {
-    return _in == simd8<uint8_t>(_mm256_shuffle_epi8(whitespace_table, _in));
-  }).to_bitmask();
-
-  uint64_t op = in.map([&](simd8<uint8_t> _in) {
-    // | 32 handles the fact that { } and [ ] are exactly 32 bytes apart
-    return (_in | 32) == simd8<uint8_t>(_mm256_shuffle_epi8(op_table, _in-','));
-  }).to_bitmask();
+  uint64_t whitespace = simd8x64<bool>(
+        in.chunks[0] == simd8<uint8_t>(_mm256_shuffle_epi8(whitespace_table, in.chunks[0])),
+        in.chunks[1] == simd8<uint8_t>(_mm256_shuffle_epi8(whitespace_table, in.chunks[1]))
+  ).to_bitmask();
+  
+  uint64_t op = simd8x64<bool>(
+        (in.chunks[0] | 32) == simd8<uint8_t>(_mm256_shuffle_epi8(op_table, in.chunks[0]-',')),
+        (in.chunks[1] | 32) == simd8<uint8_t>(_mm256_shuffle_epi8(op_table, in.chunks[1]-','))
+  ).to_bitmask();
   return { whitespace, op };
 }
 
-really_inline bool is_ascii(simd8x64<uint8_t> input) {
-  simd8<uint8_t> bits = input.reduce([&](simd8<uint8_t> a,simd8<uint8_t> b) { return a|b; });
-  return !bits.any_bits_set_anywhere(0b10000000u);
+really_inline bool is_ascii(const simd8x64<uint8_t>& input) {
+  return input.reduce_or().is_ascii();
 }
 
-really_inline simd8<bool> must_be_continuation(simd8<uint8_t> prev1, simd8<uint8_t> prev2, simd8<uint8_t> prev3) {
+really_inline simd8<bool> must_be_continuation(const simd8<uint8_t> prev1, const simd8<uint8_t> prev2, const simd8<uint8_t> prev3) {
   simd8<uint8_t> is_second_byte = prev1.saturating_sub(0b11000000u-1); // Only 11______ will be > 0
   simd8<uint8_t> is_third_byte  = prev2.saturating_sub(0b11100000u-1); // Only 111_____ will be > 0
   simd8<uint8_t> is_fourth_byte = prev3.saturating_sub(0b11110000u-1); // Only 1111____ will be > 0
@@ -8293,7 +8039,7 @@ really_inline simd8<bool> must_be_continuation(simd8<uint8_t> prev1, simd8<uint8
   return simd8<int8_t>(is_second_byte | is_third_byte | is_fourth_byte) > int8_t(0);
 }
 
-really_inline simd8<bool> must_be_2_3_continuation(simd8<uint8_t> prev2, simd8<uint8_t> prev3) {
+really_inline simd8<bool> must_be_2_3_continuation(const simd8<uint8_t> prev2, const simd8<uint8_t> prev3) {
   simd8<uint8_t> is_third_byte  = prev2.saturating_sub(0b11100000u-1); // Only 111_____ will be > 0
   simd8<uint8_t> is_fourth_byte = prev3.saturating_sub(0b11110000u-1); // Only 1111____ will be > 0
   // Caller requires a bool (all 1's). All values resulting from the subtraction will be <= 64, so signed comparison is fine.
@@ -8339,7 +8085,7 @@ UNUSED static char * format_input_text_64(const uint8_t *text) {
 }
 
 // Routines to print masks and text for debugging bitmask operations
-UNUSED static char * format_input_text(const simd8x64<uint8_t> in) {
+UNUSED static char * format_input_text(const simd8x64<uint8_t>& in) {
   static char *buf = (char*)malloc(sizeof(simd8x64<uint8_t>) + 1);
   in.store((uint8_t*)buf);
   for (size_t i=0; i<sizeof(simd8x64<uint8_t>); i++) {
@@ -8422,7 +8168,7 @@ struct json_string_block {
 // Scans blocks for string characters, storing the state necessary to do so
 class json_string_scanner {
 public:
-  really_inline json_string_block next(const simd::simd8x64<uint8_t> in);
+  really_inline json_string_block next(const simd::simd8x64<uint8_t>& in);
   really_inline error_code finish(bool streaming);
 
 private:
@@ -8488,7 +8234,7 @@ really_inline uint64_t json_string_scanner::find_escaped_branchless(uint64_t bac
 //
 // Backslash sequences outside of quotes will be detected in stage 2.
 //
-really_inline json_string_block json_string_scanner::next(const simd::simd8x64<uint8_t> in) {
+really_inline json_string_block json_string_scanner::next(const simd::simd8x64<uint8_t>& in) {
   const uint64_t backslash = in.eq('\\');
   const uint64_t escaped = find_escaped(backslash);
   const uint64_t quote = in.eq('"') & ~escaped;
@@ -8579,7 +8325,7 @@ private:
 class json_scanner {
 public:
   json_scanner() {}
-  really_inline json_block next(const simd::simd8x64<uint8_t> in);
+  really_inline json_block next(const simd::simd8x64<uint8_t>& in);
   really_inline error_code finish(bool streaming);
 
 private:
@@ -8616,7 +8362,7 @@ really_inline uint64_t follows(const uint64_t match, const uint64_t filler, uint
   return result;
 }
 
-really_inline json_block json_scanner::next(const simd::simd8x64<uint8_t> in) {
+really_inline json_block json_scanner::next(const simd::simd8x64<uint8_t>& in) {
   json_string_block strings = string_scanner.next(in);
   json_character_block characters = json_character_block::classify(in);
   uint64_t follows_scalar = follows(characters.scalar(), prev_scalar);
@@ -8660,13 +8406,13 @@ private:
   {}
   template<size_t STEP_SIZE>
   really_inline void step(const uint8_t *block_buf, buf_block_reader<STEP_SIZE> &reader) noexcept;
-  really_inline void next(simd::simd8x64<uint8_t> in, json_block block);
+  really_inline void next(const simd::simd8x64<uint8_t>& in, json_block block);
   really_inline error_code finish(uint8_t *dst_start, size_t &dst_len);
   json_scanner scanner{};
   uint8_t *dst;
 };
 
-really_inline void json_minifier::next(simd::simd8x64<uint8_t> in, json_block block) {
+really_inline void json_minifier::next(const simd::simd8x64<uint8_t>& in, json_block block) {
   uint64_t mask = block.whitespace();
   in.compress(mask, dst);
   dst += 64 - count_ones(mask);
@@ -8750,7 +8496,7 @@ WARN_UNUSED error_code implementation::minify(const uint8_t *buf, size_t len, ui
   * complete document, therefore the last json buffer location is the end of the
   * batch.
   */
-really_inline static uint32_t find_next_document_index(dom_parser_implementation &parser) {
+really_inline uint32_t find_next_document_index(dom_parser_implementation &parser) {
   // TODO don't count separately, just figure out depth
   auto arr_cnt = 0;
   auto obj_cnt = 0;
@@ -8792,7 +8538,7 @@ really_inline static uint32_t find_next_document_index(dom_parser_implementation
 }
 
 // Skip the last character if it is partial
-really_inline static size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
+really_inline size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
   if (unlikely(len < 3)) {
     switch (len) {
       case 2:
@@ -8812,176 +8558,117 @@ really_inline static size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
   return len;
 }
 /* end file src/generic/stage1/find_next_document_index.h */
-/* begin file src/generic/stage1/utf8_lookup3_algorithm.h */
-//
-// Detect Unicode errors.
-//
-// UTF-8 is designed to allow multiple bytes and be compatible with ASCII. It's a fairly basic
-// encoding that uses the first few bits on each byte to denote a "byte type", and all other bits
-// are straight up concatenated into the final value. The first byte of a multibyte character is a
-// "leading byte" and starts with N 1's, where N is the total number of bytes (110_____ = 2 byte
-// lead). The remaining bytes of a multibyte character all start with 10. 1-byte characters just
-// start with 0, because that's what ASCII looks like. Here's what each size looks like:
-//
-// - ASCII (7 bits):              0_______
-// - 2 byte character (11 bits):  110_____ 10______
-// - 3 byte character (17 bits):  1110____ 10______ 10______
-// - 4 byte character (23 bits):  11110___ 10______ 10______ 10______
-// - 5+ byte character (illegal): 11111___ <illegal>
-//
-// There are 5 classes of error that can happen in Unicode:
-//
-// - TOO_SHORT: when you have a multibyte character with too few bytes (i.e. missing continuation).
-//   We detect this by looking for new characters (lead bytes) inside the range of a multibyte
-//   character.
-//
-//   e.g. 11000000 01100001 (2-byte character where second byte is ASCII)
-//
-// - TOO_LONG: when there are more bytes in your character than you need (i.e. extra continuation).
-//   We detect this by requiring that the next byte after your multibyte character be a new
-//   character--so a continuation after your character is wrong.
-//
-//   e.g. 11011111 10111111 10111111 (2-byte character followed by *another* continuation byte)
-//
-// - TOO_LARGE: Unicode only goes up to U+10FFFF. These characters are too large.
-//
-//   e.g. 11110111 10111111 10111111 10111111 (bigger than 10FFFF).
-//
-// - OVERLONG: multibyte characters with a bunch of leading zeroes, where you could have
-//   used fewer bytes to make the same character. Like encoding an ASCII character in 4 bytes is
-//   technically possible, but UTF-8 disallows it so that there is only one way to write an "a".
-//
-//   e.g. 11000001 10100001 (2-byte encoding of "a", which only requires 1 byte: 01100001)
-//
-// - SURROGATE: Unicode U+D800-U+DFFF is a *surrogate* character, reserved for use in UCS-2 and
-//   WTF-8 encodings for characters with > 2 bytes. These are illegal in pure UTF-8.
-//
-//   e.g. 11101101 10100000 10000000 (U+D800)
-//
-// - INVALID_5_BYTE: 5-byte, 6-byte, 7-byte and 8-byte characters are unsupported; Unicode does not
-//   support values with more than 23 bits (which a 4-byte character supports).
-//
-//   e.g. 11111000 10100000 10000000 10000000 10000000 (U+800000)
-//
-// Legal utf-8 byte sequences per  http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf - page 94:
-//
-//   Code Points        1st       2s       3s       4s
-//  U+0000..U+007F     00..7F
-//  U+0080..U+07FF     C2..DF   80..BF
-//  U+0800..U+0FFF     E0       A0..BF   80..BF
-//  U+1000..U+CFFF     E1..EC   80..BF   80..BF
-//  U+D000..U+D7FF     ED       80..9F   80..BF
-//  U+E000..U+FFFF     EE..EF   80..BF   80..BF
-//  U+10000..U+3FFFF   F0       90..BF   80..BF   80..BF
-//  U+40000..U+FFFFF   F1..F3   80..BF   80..BF   80..BF
-//  U+100000..U+10FFFF F4       80..8F   80..BF   80..BF
-//
+/* begin file src/generic/stage1/utf8_lookup4_algorithm.h */
 using namespace simd;
 
 namespace utf8_validation {
-  // For a detailed description of the lookup2 algorithm, see the file HACKING.md under "UTF-8 validation (lookup2)".
 
-  //
-  // Find special case UTF-8 errors where the character is technically readable (has the right length)
-  // but the *value* is disallowed.
-  //
-  // This includes overlong encodings, surrogates and values too large for Unicode.
-  //
-  // It turns out the bad character ranges can all be detected by looking at the first 12 bits of the
-  // UTF-8 encoded character (i.e. all of byte 1, and the high 4 bits of byte 2). This algorithm does a
-  // 3 4-bit table lookups, identifying which errors that 4 bits could match, and then &'s them together.
-  // If all 3 lookups detect the same error, it's an error.
-  //
+using namespace simd;
+
   really_inline simd8<uint8_t> check_special_cases(const simd8<uint8_t> input, const simd8<uint8_t> prev1) {
-    //
-    // These are the errors we're going to match for bytes 1-2, by looking at the first three
-    // nibbles of the character: <high bits of byte 1>> & <low bits of byte 1> & <high bits of byte 2>
-    //
-    static const int OVERLONG_2  = 0x01; // 1100000_ 10______ (technically we match 10______ but we could match ________, they both yield errors either way)
-    static const int OVERLONG_3  = 0x02; // 11100000 100_____ ________
-    static const int OVERLONG_4  = 0x04; // 11110000 1000____ ________ ________
-    static const int SURROGATE   = 0x08; // 11101101 [101_]____
-    static const int TOO_LARGE   = 0x10; // 11110100 (1001|101_)____
-    static const int TOO_LARGE_2 = 0x20; // 1111(1___|011_|0101) 10______
+// Bit 0 = Too Short (lead byte/ASCII followed by lead byte/ASCII)
+// Bit 1 = Too Long (ASCII followed by continuation)
+// Bit 2 = Overlong 3-byte
+// Bit 4 = Surrogate
+// Bit 5 = Overlong 2-byte
+// Bit 7 = Two Continuations
+    constexpr const uint8_t TOO_SHORT   = 1<<0; // 11______ 0_______
+                                                // 11______ 11______
+    constexpr const uint8_t TOO_LONG    = 1<<1; // 0_______ 10______
+    constexpr const uint8_t OVERLONG_3  = 1<<2; // 11100000 100_____
+    constexpr const uint8_t SURROGATE   = 1<<4; // 11101101 101_____
+    constexpr const uint8_t OVERLONG_2  = 1<<5; // 1100000_ 10______
+    constexpr const uint8_t TWO_CONTS   = 1<<7; // 10______ 10______
+    constexpr const uint8_t TOO_LARGE   = 1<<3; // 11110100 1001____
+                                                // 11110100 101_____
+                                                // 11110101 1001____
+                                                // 11110101 101_____
+                                                // 1111011_ 1001____
+                                                // 1111011_ 101_____
+                                                // 11111___ 1001____
+                                                // 11111___ 101_____
+    constexpr const uint8_t TOO_LARGE_1000 = 1<<6;
+                                                // 11110101 1000____
+                                                // 1111011_ 1000____
+                                                // 11111___ 1000____
+    constexpr const uint8_t OVERLONG_4  = 1<<6; // 11110000 1000____
 
-    // New with lookup3. We want to catch the case where an non-continuation 
-    // follows a leading byte
-    static const int TOO_SHORT_2_3_4 = 0x40; //  (110_|1110|1111) ____    (0___|110_|1111) ____
-    // We also want to catch a continuation that is preceded by an ASCII byte
-    static const int LONELY_CONTINUATION = 0x80; //  0___ ____    01__ ____
-
-    // After processing the rest of byte 1 (the low bits), we're still not done--we have to check
-    // byte 2 to be sure which things are errors and which aren't.
-    // Since high_bits is byte 5, byte 2 is high_bits.prev<3>
-    static const int CARRY = OVERLONG_2 | TOO_LARGE_2;
-    const simd8<uint8_t> byte_2_high = input.shr<4>().lookup_16<uint8_t>(
-        // ASCII: ________ [0___]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        // ASCII: ________ [0___]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        // Continuations: ________ [10__]____
-        CARRY | OVERLONG_3 | OVERLONG_4 | LONELY_CONTINUATION, // ________ [1000]____
-        CARRY | OVERLONG_3 | TOO_LARGE | LONELY_CONTINUATION,  // ________ [1001]____
-        CARRY | TOO_LARGE  | SURROGATE | LONELY_CONTINUATION,  // ________ [1010]____
-        CARRY | TOO_LARGE  | SURROGATE | LONELY_CONTINUATION,  // ________ [1011]____
-        // Multibyte Leads: ________ [11__]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,  // 110_
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4
-    );
     const simd8<uint8_t> byte_1_high = prev1.shr<4>().lookup_16<uint8_t>(
-      // [0___]____ (ASCII)
-      LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION,
-      LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION,
-      // [10__]____ (continuation)
-      0, 0, 0, 0,
-      // [11__]____ (2+-byte leads)
-      OVERLONG_2 | TOO_SHORT_2_3_4, TOO_SHORT_2_3_4,         // [110_]____ (2-byte lead)
-      OVERLONG_3 | SURROGATE | TOO_SHORT_2_3_4,              // [1110]____ (3-byte lead)
-      OVERLONG_4 | TOO_LARGE | TOO_LARGE_2 | TOO_SHORT_2_3_4 // [1111]____ (4+-byte lead)
+      // 0_______ ________ <ASCII in byte 1>
+      TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG,
+      TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG,
+      // 10______ ________ <continuation in byte 1>
+      TWO_CONTS, TWO_CONTS, TWO_CONTS, TWO_CONTS,
+      // 1100____ ________ <two byte lead in byte 1>
+      TOO_SHORT | OVERLONG_2,
+      // 1101____ ________ <two byte lead in byte 1>
+      TOO_SHORT,
+      // 1110____ ________ <three byte lead in byte 1>
+      TOO_SHORT | OVERLONG_3 | SURROGATE,
+      // 1111____ ________ <four+ byte lead in byte 1>
+      TOO_SHORT | TOO_LARGE | TOO_LARGE_1000 | OVERLONG_4
     );
+    constexpr const uint8_t CARRY = TOO_SHORT | TOO_LONG | TWO_CONTS; // These all have ____ in byte 1 .
     const simd8<uint8_t> byte_1_low = (prev1 & 0x0F).lookup_16<uint8_t>(
-      // ____[00__] ________
-      OVERLONG_2 | OVERLONG_3 | OVERLONG_4 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION, // ____[0000] ________
-      OVERLONG_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,                           // ____[0001] ________
-      TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[01__] ________
-      TOO_LARGE | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,                            // ____[0100] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[10__] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[11__] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | SURROGATE | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,              // ____[1101] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4| LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION
-    );
-    return byte_1_high & byte_1_low & byte_2_high;
-  }
+      // ____0000 ________
+      CARRY | OVERLONG_3 | OVERLONG_2 | OVERLONG_4,
+      // ____0001 ________
+      CARRY | OVERLONG_2,
+      // ____001_ ________
+      CARRY,
+      CARRY,
 
-  really_inline simd8<uint8_t> check_multibyte_lengths(simd8<uint8_t> input, simd8<uint8_t> prev_input,
-      simd8<uint8_t> prev1) {
+      // ____0100 ________
+      CARRY | TOO_LARGE,
+      // ____0101 ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      // ____011_ ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+
+      // ____1___ ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      // ____1101 ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000 | SURROGATE,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000
+    );
+    const simd8<uint8_t> byte_2_high = input.shr<4>().lookup_16<uint8_t>(
+      // ________ 0_______ <ASCII in byte 2>
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT,
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT,
+
+      // ________ 1000____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE_1000 | OVERLONG_4,
+      // ________ 1001____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE,
+      // ________ 101_____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE  | TOO_LARGE,
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE  | TOO_LARGE,
+
+      // ________ 11______
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT
+    );
+    return (byte_1_high & byte_1_low & byte_2_high);
+  }
+  really_inline simd8<uint8_t> check_multibyte_lengths(const simd8<uint8_t> input,
+      const simd8<uint8_t> prev_input, const simd8<uint8_t> sc) {
     simd8<uint8_t> prev2 = input.prev<2>(prev_input);
     simd8<uint8_t> prev3 = input.prev<3>(prev_input);
-    // is_2_3_continuation uses one more instruction than lookup2
-    simd8<bool> is_2_3_continuation = (simd8<int8_t>(input).max(simd8<int8_t>(prev1))) < int8_t(-64);
-    // must_be_2_3_continuation has two fewer instructions than lookup 2
-    return simd8<uint8_t>(must_be_2_3_continuation(prev2, prev3) ^ is_2_3_continuation);
+    simd8<uint8_t> must23 = simd8<uint8_t>(must_be_2_3_continuation(prev2, prev3));
+    simd8<uint8_t> must23_80 = must23 & uint8_t(0x80);
+    return must23_80 ^ sc;
   }
-
 
   //
   // Return nonzero if there are incomplete multibyte characters at the end of the block:
   // e.g. if there is a 4-byte character, but it's 3 bytes from the end.
   //
-  really_inline simd8<uint8_t> is_incomplete(simd8<uint8_t> input) {
+  really_inline simd8<uint8_t> is_incomplete(const simd8<uint8_t> input) {
     // If the previous input's last 3 bytes match this, they're too short (they ended at EOF):
     // ... 1111____ 111_____ 11______
     static const uint8_t max_array[32] = {
@@ -9009,8 +8696,8 @@ namespace utf8_validation {
       // Flip prev1...prev3 so we can easily determine if they are 2+, 3+ or 4+ lead bytes
       // (2, 3, 4-byte leads become large positive numbers instead of small negative numbers)
       simd8<uint8_t> prev1 = input.prev<1>(prev_input);
-      this->error |= check_special_cases(input, prev1);
-      this->error |= check_multibyte_lengths(input, prev_input, prev1);
+      simd8<uint8_t> sc = check_special_cases(input, prev1);
+      this->error |= check_multibyte_lengths(input, prev_input, sc);
     }
 
     // The only problem that can happen at EOF is that a multibyte character is too short.
@@ -9020,30 +8707,37 @@ namespace utf8_validation {
       this->error |= this->prev_incomplete;
     }
 
-    really_inline void check_next_input(simd8x64<uint8_t> input) {
-      if (likely(is_ascii(input))) {
-        // If the previous block had incomplete UTF-8 characters at the end, an ASCII block can't
-        // possibly finish them.
+    really_inline void check_next_input(const simd8x64<uint8_t>& input) {
+      if(likely(is_ascii(input))) {
         this->error |= this->prev_incomplete;
       } else {
-        this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
-        for (int i=1; i<simd8x64<uint8_t>::NUM_CHUNKS; i++) {
-          this->check_utf8_bytes(input.chunks[i], input.chunks[i-1]);
+        // you might think that a for-loop would work, but under Visual Studio, it is not good enough.
+        static_assert((simd8x64<uint8_t>::NUM_CHUNKS == 2) || (simd8x64<uint8_t>::NUM_CHUNKS == 4),
+            "We support either two or four chunks per 64-byte block.");
+        if(simd8x64<uint8_t>::NUM_CHUNKS == 2) {
+          this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
+          this->check_utf8_bytes(input.chunks[1], input.chunks[0]);
+        } else if(simd8x64<uint8_t>::NUM_CHUNKS == 4) {
+          this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
+          this->check_utf8_bytes(input.chunks[1], input.chunks[0]);
+          this->check_utf8_bytes(input.chunks[2], input.chunks[1]);
+          this->check_utf8_bytes(input.chunks[3], input.chunks[2]);
         }
         this->prev_incomplete = is_incomplete(input.chunks[simd8x64<uint8_t>::NUM_CHUNKS-1]);
         this->prev_input_block = input.chunks[simd8x64<uint8_t>::NUM_CHUNKS-1];
+
       }
     }
 
     really_inline error_code errors() {
-      return this->error.any_bits_set_anywhere() ? simdjson::UTF8_ERROR : simdjson::SUCCESS;
+      return this->error.any_bits_set_anywhere() ? error_code::UTF8_ERROR : error_code::SUCCESS;
     }
 
   }; // struct utf8_checker
 }
 
 using utf8_validation::utf8_checker;
-/* end file src/generic/stage1/utf8_lookup3_algorithm.h */
+/* end file src/generic/stage1/utf8_lookup4_algorithm.h */
 /* begin file src/generic/stage1/json_structural_indexer.h */
 // This file contains the common code every implementation uses in stage1
 // It is intended to be included multiple times and compiled multiple times
@@ -9118,7 +8812,7 @@ private:
   really_inline json_structural_indexer(uint32_t *structural_indexes);
   template<size_t STEP_SIZE>
   really_inline void step(const uint8_t *block, buf_block_reader<STEP_SIZE> &reader) noexcept;
-  really_inline void next(simd::simd8x64<uint8_t> in, json_block block, size_t idx);
+  really_inline void next(const simd::simd8x64<uint8_t>& in, json_block block, size_t idx);
   really_inline error_code finish(dom_parser_implementation &parser, size_t idx, size_t len, bool partial);
 
   json_scanner scanner{};
@@ -9187,7 +8881,7 @@ really_inline void json_structural_indexer::step<64>(const uint8_t *block, buf_b
   reader.advance();
 }
 
-really_inline void json_structural_indexer::next(simd::simd8x64<uint8_t> in, json_block block, size_t idx) {
+really_inline void json_structural_indexer::next(const simd::simd8x64<uint8_t>& in, json_block block, size_t idx) {
   uint64_t unescaped = in.lteq(0x1F);
   checker.check_next_input(in);
   indexer.write(uint32_t(idx-64), prev_structurals); // Output *last* iteration's structurals to the parser
@@ -9483,7 +9177,7 @@ void found_float(double result, const uint8_t *buf);
 TARGET_HASWELL
 namespace simdjson {
 namespace haswell {
-static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
+static really_inline uint32_t parse_eight_digits_unrolled(const uint8_t *chars) {
   // this actually computes *16* values so we are being wasteful.
   const __m128i ascii0 = _mm_set1_epi8('0');
   const __m128i mul_1_10 =
@@ -9507,14 +9201,25 @@ static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
 namespace stage2 {
 namespace numberparsing {
 
+#ifdef JSON_TEST_NUMBERS
+#define INVALID_NUMBER(SRC) (found_invalid_number((SRC)), false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) (found_integer((VALUE), (SRC)), writer.append_s64((VALUE)))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) (found_unsigned_integer((VALUE), (SRC)), writer.append_u64((VALUE)))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) (found_float((VALUE), (SRC)), writer.append_double((VALUE)))
+#else
+#define INVALID_NUMBER(SRC) (false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) writer.append_s64((VALUE))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) writer.append_u64((VALUE))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) writer.append_double((VALUE))
+#endif
+
 // Attempts to compute i * 10^(power) exactly; and if "negative" is
 // true, negate the result.
 // This function will only work in some cases, when it does not work, success is
 // set to false. This should work *most of the time* (like 99% of the time).
 // We assume that power is in the [FASTFLOAT_SMALLEST_POWER,
 // FASTFLOAT_LARGEST_POWER] interval: the caller is responsible for this check.
-really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
-                                      bool *success) {
+really_inline double compute_float_64(int64_t power, uint64_t i, bool negative, bool *success) {
   // we start with a fast path
   // It was described in
   // Clinger WD. How to read floating point numbers accurately.
@@ -9694,9 +9399,9 @@ really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
   return d;
 }
 
-static bool parse_float_strtod(const char *ptr, double *outDouble) {
+static bool parse_float_strtod(const uint8_t *ptr, double *outDouble) {
   char *endptr;
-  *outDouble = strtod(ptr, &endptr);
+  *outDouble = strtod((const char *)ptr, &endptr);
   // Some libraries will set errno = ERANGE when the value is subnormal,
   // yet we may want to be able to parse subnormal values.
   // However, we do not want to tolerate NAN or infinite values.
@@ -9717,22 +9422,16 @@ static bool parse_float_strtod(const char *ptr, double *outDouble) {
   // a float that does not fit in binary64. JSON for Modern C++ (nlohmann/json)
   // will flat out throw an exception.
   //
-  if ((endptr == ptr) || (!std::isfinite(*outDouble))) {
+  if ((endptr == (const char *)ptr) || (!std::isfinite(*outDouble))) {
     return false;
   }
   return true;
 }
 
-really_inline bool is_integer(char c) {
-  return (c >= '0' && c <= '9');
-  // this gets compiled to (uint8_t)(c - '0') <= 9 on all decent compilers
-}
-
-
 // check quickly whether the next 8 chars are made of digits
 // at a glance, it looks better than Mula's
 // http://0x80.pl/articles/swar-digits-validate.html
-really_inline bool is_made_of_eight_digits_fast(const char *chars) {
+really_inline bool is_made_of_eight_digits_fast(const uint8_t *chars) {
   uint64_t val;
   // this can read up to 7 bytes beyond the buffer size, but we require
   // SIMDJSON_PADDING of padding
@@ -9747,110 +9446,140 @@ really_inline bool is_made_of_eight_digits_fast(const char *chars) {
           0x3333333333333333);
 }
 
-// called by parse_number when we know that the output is an integer,
-// but where there might be some integer overflow.
-// we want to catch overflows!
-// Do not call this function directly as it skips some of the checks from
-// parse_number
-//
-// This function will almost never be called!!!
-//
 template<typename W>
-never_inline bool parse_large_integer(const uint8_t *const src,
-                                      W writer,
-                                      bool found_minus) {
-  const char *p = reinterpret_cast<const char *>(src);
-
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-  }
-  uint64_t i;
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    i = 0;
-  } else {
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      if (mul_overflow(i, 10, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      if (add_overflow(i, digit, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      ++p;
-    }
-  }
-  if (negative) {
-    if (i > 0x8000000000000000) {
-      // overflows!
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false; // overflow
-    } else if (i == 0x8000000000000000) {
-      // In two's complement, we cannot represent 0x8000000000000000
-      // as a positive signed integer, but the negative version is
-      // possible.
-      constexpr int64_t signed_answer = INT64_MIN;
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    } else {
-      // we can negate safely
-      int64_t signed_answer = -static_cast<int64_t>(i);
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    }
-  } else {
-    // we have a positive integer, the contract is that
-    // we try to represent it as a signed integer and only
-    // fallback on unsigned integers if absolutely necessary.
-    if (i < 0x8000000000000000) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(i, src);
-#endif
-      writer.append_s64(i);
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_unsigned_integer(i, src);
-#endif
-      writer.append_u64(i);
-    }
-  }
-  return is_structural_or_whitespace(*p);
-}
-
-template<typename W>
-bool slow_float_parsing(UNUSED const char * src, W writer) {
+bool slow_float_parsing(UNUSED const uint8_t * src, W writer) {
   double d;
   if (parse_float_strtod(src, &d)) {
-    writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_float(d, (const uint8_t *)src);
-#endif
+    WRITE_DOUBLE(d, src, writer);
     return true;
   }
-#ifdef JSON_TEST_NUMBERS // for unit testing
-  found_invalid_number((const uint8_t *)src);
-#endif
-  return false;
+  return INVALID_NUMBER(src);
 }
+
+template<typename I>
+NO_SANITIZE_UNDEFINED // We deliberately allow overflow here and check later
+really_inline bool parse_digit(const uint8_t c, I &i) {
+  const uint8_t digit = static_cast<uint8_t>(c - '0');
+  if (digit > 9) {
+    return false;
+  }
+  // PERF NOTE: multiplication by 10 is cheaper than arbitrary integer multiplication
+  i = 10 * i + digit; // might overflow, we will handle the overflow later
+  return true;
+}
+
+really_inline bool parse_decimal(UNUSED const uint8_t *const src, const uint8_t *&p, uint64_t &i, int64_t &exponent) {
+  // we continue with the fiction that we have an integer. If the
+  // floating point number is representable as x * 10^z for some integer
+  // z that fits in 53 bits, then we will be able to convert back the
+  // the integer into a float in a lossless manner.
+  const uint8_t *const first_after_period = p;
+
+#ifdef SWAR_NUMBER_PARSING
+  // this helps if we have lots of decimals!
+  // this turns out to be frequent enough.
+  if (is_made_of_eight_digits_fast(p)) {
+    i = i * 100000000 + parse_eight_digits_unrolled(p);
+    p += 8;
+  }
+#endif
+  // Unrolling the first digit makes a small difference on some implementations (e.g. westmere)
+  if (parse_digit(*p, i)) { ++p; }
+  while (parse_digit(*p, i)) { p++; }
+  exponent = first_after_period - p;
+  // Decimal without digits (123.) is illegal
+  if (exponent == 0) {
+    return INVALID_NUMBER(src);
+  }
+  return true;
+}
+
+really_inline bool parse_exponent(UNUSED const uint8_t *const src, const uint8_t *&p, int64_t &exponent) {
+  // Exp Sign: -123.456e[-]78
+  bool neg_exp = ('-' == *p);
+  if (neg_exp || '+' == *p) { p++; } // Skip + as well
+
+  // Exponent: -123.456e-[78]
+  auto start_exp = p;
+  int64_t exp_number = 0;
+  while (parse_digit(*p, exp_number)) { ++p; }
+  exponent += (neg_exp ? -exp_number : exp_number);
+
+  // If there were no digits, it's an error.
+  // If there were more than 18 digits, we may have overflowed the integer.
+  if (unlikely(p == start_exp || p > start_exp+18)) {
+    // Skip leading zeroes: 1e000000000000000000001 is technically valid and doesn't overflow
+    while (*start_exp == '0') { start_exp++; }
+    // 19 digits could overflow int64_t and is kind of absurd anyway. We don't
+    // support exponents smaller than -9,999,999,999,999,999,999 and bigger
+    // than 9,999,999,999,999,999,999.
+    if (p == start_exp || p > start_exp+18) { return INVALID_NUMBER(src); }
+  }
+  return true;
+}
+
+template<typename W>
+really_inline bool write_float(const uint8_t *const src, bool negative, uint64_t i, const uint8_t * start_digits, int digit_count, int64_t exponent, W &writer) {
+  // If we frequently had to deal with long strings of digits,
+  // we could extend our code by using a 128-bit integer instead
+  // of a 64-bit integer. However, this is uncommon in practice.
+  // digit count is off by 1 because of the decimal (assuming there was one).
+  if (unlikely((digit_count-1 >= 19))) { // this is uncommon
+    // It is possible that the integer had an overflow.
+    // We have to handle the case where we have 0.0000somenumber.
+    const uint8_t *start = start_digits;
+    while ((*start == '0') || (*start == '.')) {
+      start++;
+    }
+    // we over-decrement by one when there is a '.'
+    digit_count -= int(start - start_digits);
+    if (digit_count >= 19) {
+      // Ok, chances are good that we had an overflow!
+      // this is almost never going to get called!!!
+      // we start anew, going slowly!!!
+      // This will happen in the following examples:
+      // 10000000000000000000000000000000000000000000e+308
+      // 3.1415926535897932384626433832795028841971693993751
+      //
+      bool success = slow_float_parsing(src, writer);
+      // The number was already written, but we made a copy of the writer
+      // when we passed it to the parse_large_integer() function, so
+      writer.skip_double();
+      return success;
+    }
+  }
+  // NOTE: it's weird that the unlikely() only wraps half the if, but it seems to get slower any other
+  // way we've tried: https://github.com/simdjson/simdjson/pull/990#discussion_r448497331
+  // To future reader: we'd love if someone found a better way, or at least could explain this result!
+  if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) || (exponent > FASTFLOAT_LARGEST_POWER)) {
+    // this is almost never going to get called!!!
+    // we start anew, going slowly!!!
+    bool success = slow_float_parsing(src, writer);
+    // The number was already written, but we made a copy of the writer when we passed it to the
+    // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
+    writer.skip_double();
+    return success;
+  }
+  bool success = true;
+  double d = compute_float_64(exponent, i, negative, &success);
+  if (!success) {
+    // we are almost never going to get here.
+    if (!parse_float_strtod(src, &d)) { return INVALID_NUMBER(src); }
+  }
+  WRITE_DOUBLE(d, src, writer);
+  return true;
+}
+
+// for performance analysis, it is sometimes  useful to skip parsing
+#ifdef SIMDJSON_SKIPNUMBERPARSING
+
+template<typename W>
+really_inline bool parse_number(const uint8_t *const, W &writer) {
+  writer.append_s64(0);        // always write zero
+  return true;                 // always succeeds
+}
+
+#else
 
 // parse the number at src
 // define JSON_TEST_NUMBERS for unit testing
@@ -9862,217 +9591,84 @@ bool slow_float_parsing(UNUSED const char * src, W writer) {
 //
 // Our objective is accurate parsing (ULP of 0) at high speed.
 template<typename W>
-really_inline bool parse_number(UNUSED const uint8_t *const src,
-                                UNUSED bool found_minus,
-                                W &writer) {
-#ifdef SIMDJSON_SKIPNUMBERPARSING // for performance analysis, it is sometimes
-                                  // useful to skip parsing
-  writer.append_s64(0);        // always write zero
-  return true;                    // always succeeds
-#else
-  const char *p = reinterpret_cast<const char *>(src);
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-    if (!is_integer(*p)) { // a negative sign must be followed by an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-  }
-  const char *const start_digits = p;
+really_inline bool parse_number(const uint8_t *const src, W &writer) {
 
-  uint64_t i;      // an unsigned int avoids signed overflows (which are bad)
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    if (is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    i = 0;
-  } else {
-    if (!(is_integer(*p))) { // must start with an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      // a multiplication by 10 is cheaper than an arbitrary integer
-      // multiplication
-      i = 10 * i + digit; // might overflow, we will handle the overflow later
-      ++p;
-    }
-  }
+  //
+  // Check for minus sign
+  //
+  bool negative = (*src == '-');
+  const uint8_t *p = src + negative;
+
+  //
+  // Parse the integer part.
+  //
+  // PERF NOTE: we don't use is_made_of_eight_digits_fast because large integers like 123456789 are rare
+  const uint8_t *const start_digits = p;
+  uint64_t i = 0;
+  while (parse_digit(*p, i)) { p++; }
+
+  // If there were no digits, or if the integer starts with 0 and has more than one digit, it's an error.
+  int digit_count = int(p - start_digits);
+  if (digit_count == 0 || ('0' == *start_digits && digit_count > 1)) { return INVALID_NUMBER(src); }
+
+  //
+  // Handle floats if there is a . or e (or both)
+  //
   int64_t exponent = 0;
   bool is_float = false;
   if ('.' == *p) {
-    is_float = true; // At this point we know that we have a float
-    // we continue with the fiction that we have an integer. If the
-    // floating point number is representable as x * 10^z for some integer
-    // z that fits in 53 bits, then we will be able to convert back the
-    // the integer into a float in a lossless manner.
+    is_float = true;
     ++p;
-    const char *const first_after_period = p;
-    if (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // might overflow + multiplication by 10 is likely
-                          // cheaper than arbitrary mult.
-      // we will handle the overflow later
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-#ifdef SWAR_NUMBER_PARSING
-    // this helps if we have lots of decimals!
-    // this turns out to be frequent enough.
-    if (is_made_of_eight_digits_fast(p)) {
-      i = i * 100000000 + parse_eight_digits_unrolled(p);
-      p += 8;
-    }
-#endif
-    while (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // in rare cases, this will overflow, but that's ok
-                          // because we have parse_highprecision_float later.
-    }
-    exponent = first_after_period - p;
+    if (!parse_decimal(src, p, i, exponent)) { return false; }
+    digit_count = int(p - start_digits); // used later to guard against overflows
   }
-  int digit_count =
-      int(p - start_digits) - 1; // used later to guard against overflows
-  int64_t exp_number = 0;   // exponential part
   if (('e' == *p) || ('E' == *p)) {
     is_float = true;
     ++p;
-    bool neg_exp = false;
-    if ('-' == *p) {
-      neg_exp = true;
-      ++p;
-    } else if ('+' == *p) {
-      ++p;
-    }
-    if (!is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    exp_number = digit;
-    p++;
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    while (is_integer(*p)) {
-      if (exp_number > 0x100000000) { // we need to check for overflows
-                                      // we refuse to parse this
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false;
-      }
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    exponent += (neg_exp ? -exp_number : exp_number);
+    if (!parse_exponent(src, p, exponent)) { return false; }
   }
   if (is_float) {
-    // If we frequently had to deal with long strings of digits,
-    // we could extend our code by using a 128-bit integer instead
-    // of a 64-bit integer. However, this is uncommon in practice.
-    if (unlikely((digit_count >= 19))) { // this is uncommon
-      // It is possible that the integer had an overflow.
-      // We have to handle the case where we have 0.0000somenumber.
-      const char *start = start_digits;
-      while ((*start == '0') || (*start == '.')) {
-        start++;
+    return write_float(src, negative, i, start_digits, digit_count, exponent, writer);
+  }
+
+  // The longest negative 64-bit number is 19 digits.
+  // The longest positive 64-bit number is 20 digits.
+  // We do it this way so we don't trigger this branch unless we must.
+  int longest_digit_count = negative ? 19 : 20;
+  if (digit_count > longest_digit_count) { return INVALID_NUMBER(src); }
+  if (digit_count == longest_digit_count) {
+    if(negative) {
+      // Anything negative above INT64_MAX+1 is invalid
+      if (i > uint64_t(INT64_MAX)+1) {
+        return INVALID_NUMBER(src); 
       }
-      // we over-decrement by one when there is a '.'
-      digit_count -= int(start - start_digits);
-      if (digit_count >= 19) {
-        // Ok, chances are good that we had an overflow!
-        // this is almost never going to get called!!!
-        // we start anew, going slowly!!!
-        // This will happen in the following examples:
-        // 10000000000000000000000000000000000000000000e+308
-        // 3.1415926535897932384626433832795028841971693993751
-        //
-        bool success = slow_float_parsing((const char *) src, writer);
-        // The number was already written, but we made a copy of the writer
-        // when we passed it to the parse_large_integer() function, so
-        writer.skip_double();
-        return success;
-      }
-    }
-    if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) ||
-        (exponent > FASTFLOAT_LARGEST_POWER)) { // this is uncommon!!!
-      // this is almost never going to get called!!!
-      // we start anew, going slowly!!!
-      bool success = slow_float_parsing((const char *) src, writer);
-      // The number was already written, but we made a copy of the writer when we passed it to the
-      // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
-      writer.skip_double();
-      return success;
-    }
-    bool success = true;
-    double d = compute_float_64(exponent, i, negative, &success);
-    if (!success) {
-      // we are almost never going to get here.
-      success = parse_float_strtod((const char *)src, &d);
-    }
-    if (success) {
-      writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_float(d, src);
-#endif
-      return true;
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
+      WRITE_INTEGER(~i+1, src, writer);
+      return is_structural_or_whitespace(*p);
+    // Positive overflow check:
+    // - A 20 digit number starting with 2-9 is overflow, because 18,446,744,073,709,551,615 is the
+    //   biggest uint64_t.
+    // - A 20 digit number starting with 1 is overflow if it is less than INT64_MAX.
+    //   If we got here, it's a 20 digit number starting with the digit "1".
+    // - If a 20 digit number starting with 1 overflowed (i*10+digit), the result will be smaller
+    //   than 1,553,255,926,290,448,384.
+    // - That is smaller than the smallest possible 20-digit number the user could write:
+    //   10,000,000,000,000,000,000.
+    // - Therefore, if the number is positive and lower than that, it's overflow.
+    // - The value we are looking at is less than or equal to 9,223,372,036,854,775,808 (INT64_MAX).
+    //
+    }  else if (src[0] != uint8_t('1') || i <= uint64_t(INT64_MAX)) { return INVALID_NUMBER(src); }
+  }
+
+  // Write unsigned if it doesn't fit in a signed integer.
+  if (i > uint64_t(INT64_MAX)) {
+    WRITE_UNSIGNED(i, src, writer);
   } else {
-    if (unlikely(digit_count >= 18)) { // this is uncommon!!!
-      // there is a good chance that we had an overflow, so we need
-      // need to recover: we parse the whole thing again.
-      bool success = parse_large_integer(src, writer, found_minus);
-      // The number was already written, but we made a copy of the writer
-      // when we passed it to the parse_large_integer() function, so
-      writer.skip_large_integer();
-      return success;
-    }
-    i = negative ? 0 - i : i;
-    writer.append_s64(i);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_integer(i, src);
-#endif
+    WRITE_INTEGER(negative ? (~i+1) : i, src, writer);
   }
   return is_structural_or_whitespace(*p);
-#endif // SIMDJSON_SKIPNUMBERPARSING
 }
+
+#endif // SIMDJSON_SKIPNUMBERPARSING
 
 } // namespace numberparsing
 } // namespace stage2
@@ -10160,15 +9756,26 @@ namespace logger {
 namespace stage2 {
 namespace atomparsing {
 
-really_inline uint32_t string_to_uint32(const char* str) { return *reinterpret_cast<const uint32_t *>(str); }
+namespace{
+// The string_to_uint32 is exclusively used to map literal strings to 32-bit values.
+// We use memcpy instead of a pointer cast to avoid undefined behaviors since we cannot
+// be certain that the character pointer will be properly aligned.
+// You might think that using memcpy makes this function expensive, but you'd be wrong.
+// All decent optimizing compilers (GCC, clang, Visual Studio) will compile string_to_uint32("false");
+// to the compile-time constant 1936482662.
+really_inline uint32_t string_to_uint32(const char* str) { uint32_t val; std::memcpy(&val, str, sizeof(uint32_t)); return val; }
 
+
+// Again in str4ncmp we use a memcpy to avoid undefined behavior. The memcpy may appear expensive.
+// Yet all decent optimizing compilers will compile memcpy to a single instruction, just about.
 WARN_UNUSED
 really_inline uint32_t str4ncmp(const uint8_t *src, const char* atom) {
-  uint32_t srcval; // we want to avoid unaligned 64-bit loads (undefined in C/C++)
+  uint32_t srcval; // we want to avoid unaligned 32-bit loads (undefined in C/C++)
   static_assert(sizeof(uint32_t) <= SIMDJSON_PADDING, "SIMDJSON_PADDING must be larger than 4 bytes");
   std::memcpy(&srcval, src, sizeof(uint32_t));
   return srcval ^ string_to_uint32(atom);
 }
+} // anonymous namespace
 
 WARN_UNUSED
 really_inline bool is_valid_true_atom(const uint8_t *src) {
@@ -10243,31 +9850,7 @@ public:
   really_inline size_t remaining_len() {
     return parser.len - *current_structural;
   }
-  template<typename F>
-  really_inline bool with_space_terminated_copy(const F& f) {
-    /**
-    * We need to make a copy to make sure that the string is space terminated.
-    * This is not about padding the input, which should already padded up
-    * to len + SIMDJSON_PADDING. However, we have no control at this stage
-    * on how the padding was done. What if the input string was padded with nulls?
-    * It is quite common for an input string to have an extra null character (C string).
-    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
-    * document, but the string "9\0" by itself is fine. So we make a copy and
-    * pad the input with spaces when we know that there is just one input element.
-    * This copy is relatively expensive, but it will almost never be called in
-    * practice unless you are in the strange scenario where you have many JSON
-    * documents made of single atoms.
-    */
-    char *copy = static_cast<char *>(malloc(parser.len + SIMDJSON_PADDING));
-    if (copy == nullptr) {
-      return true;
-    }
-    memcpy(copy, buf, parser.len);
-    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
-    bool result = f(reinterpret_cast<const uint8_t*>(copy), *current_structural);
-    free(copy);
-    return result;
-  }
+
   really_inline bool past_end(uint32_t n_structural_indexes) {
     return current_structural >= &parser.structural_indexes[n_structural_indexes];
   }
@@ -10539,16 +10122,41 @@ struct structural_parser : structural_iterator {
     return false;
   }
 
-  WARN_UNUSED really_inline bool parse_number(const uint8_t *src, bool found_minus) {
+  WARN_UNUSED really_inline bool parse_number(const uint8_t *src) {
     log_value("number");
-    bool succeeded = numberparsing::parse_number(src, found_minus, tape);
+    bool succeeded = numberparsing::parse_number(src, tape);
     if (!succeeded) { log_error("Invalid number"); }
     return !succeeded;
   }
-  WARN_UNUSED really_inline bool parse_number(bool found_minus) {
-    return parse_number(current(), found_minus);
+  WARN_UNUSED really_inline bool parse_number() {
+    return parse_number(current());
   }
 
+  really_inline bool parse_number_with_space_terminated_copy() {
+    /**
+    * We need to make a copy to make sure that the string is space terminated.
+    * This is not about padding the input, which should already padded up
+    * to len + SIMDJSON_PADDING. However, we have no control at this stage
+    * on how the padding was done. What if the input string was padded with nulls?
+    * It is quite common for an input string to have an extra null character (C string).
+    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
+    * document, but the string "9\0" by itself is fine. So we make a copy and
+    * pad the input with spaces when we know that there is just one input element.
+    * This copy is relatively expensive, but it will almost never be called in
+    * practice unless you are in the strange scenario where you have many JSON
+    * documents made of single atoms.
+    */
+    uint8_t *copy = static_cast<uint8_t *>(malloc(parser.len + SIMDJSON_PADDING));
+    if (copy == nullptr) {
+      return true;
+    }
+    memcpy(copy, buf, parser.len);
+    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
+    size_t idx = *current_structural;
+    bool result = parse_number(&copy[idx]); // parse_number does not throw
+    free(copy);
+    return result;
+  }
   WARN_UNUSED really_inline ret_address_t parse_value(const unified_machine_addresses &addresses, ret_address_t continue_state) {
     switch (advance_char()) {
     case '"':
@@ -10569,12 +10177,10 @@ struct structural_parser : structural_iterator {
       FAIL_IF( !atomparsing::is_valid_null_atom(current()) );
       tape.append(0, internal::tape_type::NULL_VALUE);
       return continue_state;
+    case '-':
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
-      FAIL_IF( parse_number(false) );
-      return continue_state;
-    case '-':
-      FAIL_IF( parse_number(true) );
+      FAIL_IF( parse_number() );
       return continue_state;
     case '{':
       FAIL_IF( start_object(continue_state) );
@@ -10686,6 +10292,7 @@ struct structural_parser : structural_iterator {
 #undef FAIL_IF
 #define FAIL_IF(EXPR) { if (EXPR) { goto error; } }
 
+
 template<bool STREAMING>
 WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_parser, dom::document &doc) noexcept {
   dom_parser.doc = &doc;
@@ -10729,20 +10336,13 @@ WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_p
     FAIL_IF( !atomparsing::is_valid_null_atom(parser.current(), parser.remaining_len()) );
     parser.tape.append(0, internal::tape_type::NULL_VALUE);
     goto finish;
+  case '-':
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], false);
-      })
-    );
-    goto finish;
-  case '-':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], true);
-      })
-    );
+    // Next line used to be an interesting functional programming exercise with
+    // a lambda that gets passed to another function via a closure. This would confuse the
+    // clangcl compiler under Visual Studio 2019 (recent release).
+    FAIL_IF(parser.parse_number_with_space_terminated_copy());
     goto finish;
   default:
     parser.log_error("Document starts with a non-value character");
@@ -11407,6 +11007,7 @@ namespace simd {
     really_inline simd8<bool> bits_not_set(simd8<uint8_t> bits) const { return (*this & bits).bits_not_set(); }
     really_inline simd8<bool> any_bits_set() const { return ~this->bits_not_set(); }
     really_inline simd8<bool> any_bits_set(simd8<uint8_t> bits) const { return ~this->bits_not_set(bits); }
+    really_inline bool is_ascii() const { return _mm_movemask_epi8(*this) == 0; }
     really_inline bool bits_not_set_anywhere() const { return _mm_testz_si128(*this, *this); }
     really_inline bool any_bits_set_anywhere() const { return !bits_not_set_anywhere(); }
     really_inline bool bits_not_set_anywhere(simd8<uint8_t> bits) const { return _mm_testz_si128(*this, bits); }
@@ -11423,10 +11024,14 @@ namespace simd {
 
   template<typename T>
   struct simd8x64 {
-    static const int NUM_CHUNKS = 64 / sizeof(simd8<T>);
+    static constexpr int NUM_CHUNKS = 64 / sizeof(simd8<T>);
+    static_assert(NUM_CHUNKS == 4, "Westmere kernel should use four registers per 64-byte block.");
     const simd8<T> chunks[NUM_CHUNKS];
 
-    really_inline simd8x64() : chunks{simd8<T>(), simd8<T>(), simd8<T>(), simd8<T>()} {}
+    simd8x64(const simd8x64<T>& o) = delete; // no copy allowed
+    simd8x64<T>& operator=(const simd8<T> other) = delete; // no assignment allowed
+    simd8x64() = delete; // no default constructor allowed
+
     really_inline simd8x64(const simd8<T> chunk0, const simd8<T> chunk1, const simd8<T> chunk2, const simd8<T> chunk3) : chunks{chunk0, chunk1, chunk2, chunk3} {}
     really_inline simd8x64(const T ptr[64]) : chunks{simd8<T>::load(ptr), simd8<T>::load(ptr+16), simd8<T>::load(ptr+32), simd8<T>::load(ptr+48)} {}
 
@@ -11437,56 +11042,15 @@ namespace simd {
       this->chunks[3].store(ptr+sizeof(simd8<T>)*3);
     }
 
+    really_inline simd8<T> reduce_or() const {
+      return (this->chunks[0] | this->chunks[1]) | (this->chunks[2] | this->chunks[3]);
+    }
+
     really_inline void compress(uint64_t mask, T * output) const {
       this->chunks[0].compress(uint16_t(mask), output);
       this->chunks[1].compress(uint16_t(mask >> 16), output + 16 - count_ones(mask & 0xFFFF));
       this->chunks[2].compress(uint16_t(mask >> 32), output + 32 - count_ones(mask & 0xFFFFFFFF));
       this->chunks[3].compress(uint16_t(mask >> 48), output + 48 - count_ones(mask & 0xFFFFFFFFFFFF));
-    }
-
-    template <typename F>
-    static really_inline void each_index(F const& each) {
-      each(0);
-      each(1);
-      each(2);
-      each(3);
-    }
-
-    template <typename F>
-    really_inline void each(F const& each_chunk) const
-    {
-      each_chunk(this->chunks[0]);
-      each_chunk(this->chunks[1]);
-      each_chunk(this->chunks[2]);
-      each_chunk(this->chunks[3]);
-    }
-
-    template <typename F, typename R=bool>
-    really_inline simd8x64<R> map(F const& map_chunk) const {
-      return simd8x64<R>(
-        map_chunk(this->chunks[0]),
-        map_chunk(this->chunks[1]),
-        map_chunk(this->chunks[2]),
-        map_chunk(this->chunks[3])
-      );
-    }
-
-    template <typename F, typename R=bool>
-    really_inline simd8x64<R> map(const simd8x64<uint8_t> b, F const& map_chunk) const {
-      return simd8x64<R>(
-        map_chunk(this->chunks[0], b.chunks[0]),
-        map_chunk(this->chunks[1], b.chunks[1]),
-        map_chunk(this->chunks[2], b.chunks[2]),
-        map_chunk(this->chunks[3], b.chunks[3])
-      );
-    }
-
-    template <typename F>
-    really_inline simd8<T> reduce(F const& reduce_pair) const {
-      return reduce_pair(
-        reduce_pair(this->chunks[0], this->chunks[1]),
-        reduce_pair(this->chunks[2], this->chunks[3])
-      );
     }
 
     really_inline uint64_t to_bitmask() const {
@@ -11499,17 +11063,32 @@ namespace simd {
 
     really_inline simd8x64<T> bit_or(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a | mask; } );
+      return simd8x64<T>(
+        this->chunks[0] | mask,
+        this->chunks[1] | mask,
+        this->chunks[2] | mask,
+        this->chunks[3] | mask
+      );
     }
 
     really_inline uint64_t eq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a == mask; } ).to_bitmask();
+      return  simd8x64<bool>(
+        this->chunks[0] == mask,
+        this->chunks[1] == mask,
+        this->chunks[2] == mask,
+        this->chunks[3] == mask
+      ).to_bitmask();
     }
 
     really_inline uint64_t lteq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](simd8<T> a) { return a <= mask; } ).to_bitmask();
+      return  simd8x64<bool>(
+        this->chunks[0] <= mask,
+        this->chunks[1] <= mask,
+        this->chunks[2] <= mask,
+        this->chunks[3] <= mask
+      ).to_bitmask();
     }
   }; // struct simd8x64<T>
 
@@ -11531,7 +11110,7 @@ namespace westmere {
 using namespace simd;
 
 struct json_character_block {
-  static really_inline json_character_block classify(const simd::simd8x64<uint8_t> in);
+  static really_inline json_character_block classify(const simd::simd8x64<uint8_t>& in);
 
   really_inline uint64_t whitespace() const { return _whitespace; }
   really_inline uint64_t op() const { return _op; }
@@ -11541,7 +11120,7 @@ struct json_character_block {
   uint64_t _op;
 };
 
-really_inline json_character_block json_character_block::classify(const simd::simd8x64<uint8_t> in) {
+really_inline json_character_block json_character_block::classify(const simd::simd8x64<uint8_t>& in) {
   // These lookups rely on the fact that anything < 127 will match the lower 4 bits, which is why
   // we can't use the generic lookup_16.
   auto whitespace_table = simd8<uint8_t>::repeat_16(' ', 100, 100, 100, 17, 100, 113, 2, 100, '\t', '\n', 112, 100, '\r', 100, 100);
@@ -11552,23 +11131,28 @@ really_inline json_character_block json_character_block::classify(const simd::si
   // hope that useless computations will be omitted. This is namely case when
   // minifying (we only need whitespace).
 
-  uint64_t whitespace = in.map([&](simd8<uint8_t> _in) {
-    return _in == simd8<uint8_t>(_mm_shuffle_epi8(whitespace_table, _in));
-  }).to_bitmask();
+  uint64_t whitespace = simd8x64<bool>(
+        in.chunks[0] == simd8<uint8_t>(_mm_shuffle_epi8(whitespace_table, in.chunks[0])),
+        in.chunks[1] == simd8<uint8_t>(_mm_shuffle_epi8(whitespace_table, in.chunks[1])),
+        in.chunks[2] == simd8<uint8_t>(_mm_shuffle_epi8(whitespace_table, in.chunks[2])),
+        in.chunks[3] == simd8<uint8_t>(_mm_shuffle_epi8(whitespace_table, in.chunks[3]))
+  ).to_bitmask();
 
-  uint64_t op = in.map([&](simd8<uint8_t> _in) {
-    // | 32 handles the fact that { } and [ ] are exactly 32 bytes apart
-    return (_in | 32) == simd8<uint8_t>(_mm_shuffle_epi8(op_table, _in-','));
-  }).to_bitmask();
+  // | 32 handles the fact that { } and [ ] are exactly 32 bytes apart
+  uint64_t op = simd8x64<bool>(
+        (in.chunks[0] | 32) == simd8<uint8_t>(_mm_shuffle_epi8(op_table, in.chunks[0]-',')),
+        (in.chunks[1] | 32) == simd8<uint8_t>(_mm_shuffle_epi8(op_table, in.chunks[1]-',')),
+        (in.chunks[2] | 32) == simd8<uint8_t>(_mm_shuffle_epi8(op_table, in.chunks[2]-',')),
+        (in.chunks[3] | 32) == simd8<uint8_t>(_mm_shuffle_epi8(op_table, in.chunks[3]-','))
+  ).to_bitmask();
   return { whitespace, op };
 }
 
-really_inline bool is_ascii(simd8x64<uint8_t> input) {
-  simd8<uint8_t> bits = input.reduce([&](simd8<uint8_t> a,simd8<uint8_t> b) { return a|b; });
-  return !bits.any_bits_set_anywhere(0b10000000u);
+really_inline bool is_ascii(const simd8x64<uint8_t>& input) {
+  return input.reduce_or().is_ascii();
 }
 
-really_inline simd8<bool> must_be_continuation(simd8<uint8_t> prev1, simd8<uint8_t> prev2, simd8<uint8_t> prev3) {
+really_inline simd8<bool> must_be_continuation(const simd8<uint8_t> prev1, const simd8<uint8_t> prev2, const simd8<uint8_t> prev3) {
   simd8<uint8_t> is_second_byte = prev1.saturating_sub(0b11000000u-1); // Only 11______ will be > 0
   simd8<uint8_t> is_third_byte  = prev2.saturating_sub(0b11100000u-1); // Only 111_____ will be > 0
   simd8<uint8_t> is_fourth_byte = prev3.saturating_sub(0b11110000u-1); // Only 1111____ will be > 0
@@ -11576,7 +11160,7 @@ really_inline simd8<bool> must_be_continuation(simd8<uint8_t> prev1, simd8<uint8
   return simd8<int8_t>(is_second_byte | is_third_byte | is_fourth_byte) > int8_t(0);
 }
 
-really_inline simd8<bool> must_be_2_3_continuation(simd8<uint8_t> prev2, simd8<uint8_t> prev3) {
+really_inline simd8<bool> must_be_2_3_continuation(const simd8<uint8_t> prev2, const simd8<uint8_t> prev3) {
   simd8<uint8_t> is_third_byte  = prev2.saturating_sub(0b11100000u-1); // Only 111_____ will be > 0
   simd8<uint8_t> is_fourth_byte = prev3.saturating_sub(0b11110000u-1); // Only 1111____ will be > 0
   // Caller requires a bool (all 1's). All values resulting from the subtraction will be <= 64, so signed comparison is fine.
@@ -11622,7 +11206,7 @@ UNUSED static char * format_input_text_64(const uint8_t *text) {
 }
 
 // Routines to print masks and text for debugging bitmask operations
-UNUSED static char * format_input_text(const simd8x64<uint8_t> in) {
+UNUSED static char * format_input_text(const simd8x64<uint8_t>& in) {
   static char *buf = (char*)malloc(sizeof(simd8x64<uint8_t>) + 1);
   in.store((uint8_t*)buf);
   for (size_t i=0; i<sizeof(simd8x64<uint8_t>); i++) {
@@ -11705,7 +11289,7 @@ struct json_string_block {
 // Scans blocks for string characters, storing the state necessary to do so
 class json_string_scanner {
 public:
-  really_inline json_string_block next(const simd::simd8x64<uint8_t> in);
+  really_inline json_string_block next(const simd::simd8x64<uint8_t>& in);
   really_inline error_code finish(bool streaming);
 
 private:
@@ -11771,7 +11355,7 @@ really_inline uint64_t json_string_scanner::find_escaped_branchless(uint64_t bac
 //
 // Backslash sequences outside of quotes will be detected in stage 2.
 //
-really_inline json_string_block json_string_scanner::next(const simd::simd8x64<uint8_t> in) {
+really_inline json_string_block json_string_scanner::next(const simd::simd8x64<uint8_t>& in) {
   const uint64_t backslash = in.eq('\\');
   const uint64_t escaped = find_escaped(backslash);
   const uint64_t quote = in.eq('"') & ~escaped;
@@ -11862,7 +11446,7 @@ private:
 class json_scanner {
 public:
   json_scanner() {}
-  really_inline json_block next(const simd::simd8x64<uint8_t> in);
+  really_inline json_block next(const simd::simd8x64<uint8_t>& in);
   really_inline error_code finish(bool streaming);
 
 private:
@@ -11899,7 +11483,7 @@ really_inline uint64_t follows(const uint64_t match, const uint64_t filler, uint
   return result;
 }
 
-really_inline json_block json_scanner::next(const simd::simd8x64<uint8_t> in) {
+really_inline json_block json_scanner::next(const simd::simd8x64<uint8_t>& in) {
   json_string_block strings = string_scanner.next(in);
   json_character_block characters = json_character_block::classify(in);
   uint64_t follows_scalar = follows(characters.scalar(), prev_scalar);
@@ -11943,13 +11527,13 @@ private:
   {}
   template<size_t STEP_SIZE>
   really_inline void step(const uint8_t *block_buf, buf_block_reader<STEP_SIZE> &reader) noexcept;
-  really_inline void next(simd::simd8x64<uint8_t> in, json_block block);
+  really_inline void next(const simd::simd8x64<uint8_t>& in, json_block block);
   really_inline error_code finish(uint8_t *dst_start, size_t &dst_len);
   json_scanner scanner{};
   uint8_t *dst;
 };
 
-really_inline void json_minifier::next(simd::simd8x64<uint8_t> in, json_block block) {
+really_inline void json_minifier::next(const simd::simd8x64<uint8_t>& in, json_block block) {
   uint64_t mask = block.whitespace();
   in.compress(mask, dst);
   dst += 64 - count_ones(mask);
@@ -12033,7 +11617,7 @@ WARN_UNUSED error_code implementation::minify(const uint8_t *buf, size_t len, ui
   * complete document, therefore the last json buffer location is the end of the
   * batch.
   */
-really_inline static uint32_t find_next_document_index(dom_parser_implementation &parser) {
+really_inline uint32_t find_next_document_index(dom_parser_implementation &parser) {
   // TODO don't count separately, just figure out depth
   auto arr_cnt = 0;
   auto obj_cnt = 0;
@@ -12075,7 +11659,7 @@ really_inline static uint32_t find_next_document_index(dom_parser_implementation
 }
 
 // Skip the last character if it is partial
-really_inline static size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
+really_inline size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
   if (unlikely(len < 3)) {
     switch (len) {
       case 2:
@@ -12095,176 +11679,117 @@ really_inline static size_t trim_partial_utf8(const uint8_t *buf, size_t len) {
   return len;
 }
 /* end file src/generic/stage1/find_next_document_index.h */
-/* begin file src/generic/stage1/utf8_lookup3_algorithm.h */
-//
-// Detect Unicode errors.
-//
-// UTF-8 is designed to allow multiple bytes and be compatible with ASCII. It's a fairly basic
-// encoding that uses the first few bits on each byte to denote a "byte type", and all other bits
-// are straight up concatenated into the final value. The first byte of a multibyte character is a
-// "leading byte" and starts with N 1's, where N is the total number of bytes (110_____ = 2 byte
-// lead). The remaining bytes of a multibyte character all start with 10. 1-byte characters just
-// start with 0, because that's what ASCII looks like. Here's what each size looks like:
-//
-// - ASCII (7 bits):              0_______
-// - 2 byte character (11 bits):  110_____ 10______
-// - 3 byte character (17 bits):  1110____ 10______ 10______
-// - 4 byte character (23 bits):  11110___ 10______ 10______ 10______
-// - 5+ byte character (illegal): 11111___ <illegal>
-//
-// There are 5 classes of error that can happen in Unicode:
-//
-// - TOO_SHORT: when you have a multibyte character with too few bytes (i.e. missing continuation).
-//   We detect this by looking for new characters (lead bytes) inside the range of a multibyte
-//   character.
-//
-//   e.g. 11000000 01100001 (2-byte character where second byte is ASCII)
-//
-// - TOO_LONG: when there are more bytes in your character than you need (i.e. extra continuation).
-//   We detect this by requiring that the next byte after your multibyte character be a new
-//   character--so a continuation after your character is wrong.
-//
-//   e.g. 11011111 10111111 10111111 (2-byte character followed by *another* continuation byte)
-//
-// - TOO_LARGE: Unicode only goes up to U+10FFFF. These characters are too large.
-//
-//   e.g. 11110111 10111111 10111111 10111111 (bigger than 10FFFF).
-//
-// - OVERLONG: multibyte characters with a bunch of leading zeroes, where you could have
-//   used fewer bytes to make the same character. Like encoding an ASCII character in 4 bytes is
-//   technically possible, but UTF-8 disallows it so that there is only one way to write an "a".
-//
-//   e.g. 11000001 10100001 (2-byte encoding of "a", which only requires 1 byte: 01100001)
-//
-// - SURROGATE: Unicode U+D800-U+DFFF is a *surrogate* character, reserved for use in UCS-2 and
-//   WTF-8 encodings for characters with > 2 bytes. These are illegal in pure UTF-8.
-//
-//   e.g. 11101101 10100000 10000000 (U+D800)
-//
-// - INVALID_5_BYTE: 5-byte, 6-byte, 7-byte and 8-byte characters are unsupported; Unicode does not
-//   support values with more than 23 bits (which a 4-byte character supports).
-//
-//   e.g. 11111000 10100000 10000000 10000000 10000000 (U+800000)
-//
-// Legal utf-8 byte sequences per  http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf - page 94:
-//
-//   Code Points        1st       2s       3s       4s
-//  U+0000..U+007F     00..7F
-//  U+0080..U+07FF     C2..DF   80..BF
-//  U+0800..U+0FFF     E0       A0..BF   80..BF
-//  U+1000..U+CFFF     E1..EC   80..BF   80..BF
-//  U+D000..U+D7FF     ED       80..9F   80..BF
-//  U+E000..U+FFFF     EE..EF   80..BF   80..BF
-//  U+10000..U+3FFFF   F0       90..BF   80..BF   80..BF
-//  U+40000..U+FFFFF   F1..F3   80..BF   80..BF   80..BF
-//  U+100000..U+10FFFF F4       80..8F   80..BF   80..BF
-//
+/* begin file src/generic/stage1/utf8_lookup4_algorithm.h */
 using namespace simd;
 
 namespace utf8_validation {
-  // For a detailed description of the lookup2 algorithm, see the file HACKING.md under "UTF-8 validation (lookup2)".
 
-  //
-  // Find special case UTF-8 errors where the character is technically readable (has the right length)
-  // but the *value* is disallowed.
-  //
-  // This includes overlong encodings, surrogates and values too large for Unicode.
-  //
-  // It turns out the bad character ranges can all be detected by looking at the first 12 bits of the
-  // UTF-8 encoded character (i.e. all of byte 1, and the high 4 bits of byte 2). This algorithm does a
-  // 3 4-bit table lookups, identifying which errors that 4 bits could match, and then &'s them together.
-  // If all 3 lookups detect the same error, it's an error.
-  //
+using namespace simd;
+
   really_inline simd8<uint8_t> check_special_cases(const simd8<uint8_t> input, const simd8<uint8_t> prev1) {
-    //
-    // These are the errors we're going to match for bytes 1-2, by looking at the first three
-    // nibbles of the character: <high bits of byte 1>> & <low bits of byte 1> & <high bits of byte 2>
-    //
-    static const int OVERLONG_2  = 0x01; // 1100000_ 10______ (technically we match 10______ but we could match ________, they both yield errors either way)
-    static const int OVERLONG_3  = 0x02; // 11100000 100_____ ________
-    static const int OVERLONG_4  = 0x04; // 11110000 1000____ ________ ________
-    static const int SURROGATE   = 0x08; // 11101101 [101_]____
-    static const int TOO_LARGE   = 0x10; // 11110100 (1001|101_)____
-    static const int TOO_LARGE_2 = 0x20; // 1111(1___|011_|0101) 10______
+// Bit 0 = Too Short (lead byte/ASCII followed by lead byte/ASCII)
+// Bit 1 = Too Long (ASCII followed by continuation)
+// Bit 2 = Overlong 3-byte
+// Bit 4 = Surrogate
+// Bit 5 = Overlong 2-byte
+// Bit 7 = Two Continuations
+    constexpr const uint8_t TOO_SHORT   = 1<<0; // 11______ 0_______
+                                                // 11______ 11______
+    constexpr const uint8_t TOO_LONG    = 1<<1; // 0_______ 10______
+    constexpr const uint8_t OVERLONG_3  = 1<<2; // 11100000 100_____
+    constexpr const uint8_t SURROGATE   = 1<<4; // 11101101 101_____
+    constexpr const uint8_t OVERLONG_2  = 1<<5; // 1100000_ 10______
+    constexpr const uint8_t TWO_CONTS   = 1<<7; // 10______ 10______
+    constexpr const uint8_t TOO_LARGE   = 1<<3; // 11110100 1001____
+                                                // 11110100 101_____
+                                                // 11110101 1001____
+                                                // 11110101 101_____
+                                                // 1111011_ 1001____
+                                                // 1111011_ 101_____
+                                                // 11111___ 1001____
+                                                // 11111___ 101_____
+    constexpr const uint8_t TOO_LARGE_1000 = 1<<6;
+                                                // 11110101 1000____
+                                                // 1111011_ 1000____
+                                                // 11111___ 1000____
+    constexpr const uint8_t OVERLONG_4  = 1<<6; // 11110000 1000____
 
-    // New with lookup3. We want to catch the case where an non-continuation 
-    // follows a leading byte
-    static const int TOO_SHORT_2_3_4 = 0x40; //  (110_|1110|1111) ____    (0___|110_|1111) ____
-    // We also want to catch a continuation that is preceded by an ASCII byte
-    static const int LONELY_CONTINUATION = 0x80; //  0___ ____    01__ ____
-
-    // After processing the rest of byte 1 (the low bits), we're still not done--we have to check
-    // byte 2 to be sure which things are errors and which aren't.
-    // Since high_bits is byte 5, byte 2 is high_bits.prev<3>
-    static const int CARRY = OVERLONG_2 | TOO_LARGE_2;
-    const simd8<uint8_t> byte_2_high = input.shr<4>().lookup_16<uint8_t>(
-        // ASCII: ________ [0___]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        // ASCII: ________ [0___]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,
-        // Continuations: ________ [10__]____
-        CARRY | OVERLONG_3 | OVERLONG_4 | LONELY_CONTINUATION, // ________ [1000]____
-        CARRY | OVERLONG_3 | TOO_LARGE | LONELY_CONTINUATION,  // ________ [1001]____
-        CARRY | TOO_LARGE  | SURROGATE | LONELY_CONTINUATION,  // ________ [1010]____
-        CARRY | TOO_LARGE  | SURROGATE | LONELY_CONTINUATION,  // ________ [1011]____
-        // Multibyte Leads: ________ [11__]____
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4,  // 110_
-        CARRY | TOO_SHORT_2_3_4, CARRY | TOO_SHORT_2_3_4
-    );
     const simd8<uint8_t> byte_1_high = prev1.shr<4>().lookup_16<uint8_t>(
-      // [0___]____ (ASCII)
-      LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION,
-      LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION, LONELY_CONTINUATION,
-      // [10__]____ (continuation)
-      0, 0, 0, 0,
-      // [11__]____ (2+-byte leads)
-      OVERLONG_2 | TOO_SHORT_2_3_4, TOO_SHORT_2_3_4,         // [110_]____ (2-byte lead)
-      OVERLONG_3 | SURROGATE | TOO_SHORT_2_3_4,              // [1110]____ (3-byte lead)
-      OVERLONG_4 | TOO_LARGE | TOO_LARGE_2 | TOO_SHORT_2_3_4 // [1111]____ (4+-byte lead)
+      // 0_______ ________ <ASCII in byte 1>
+      TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG,
+      TOO_LONG, TOO_LONG, TOO_LONG, TOO_LONG,
+      // 10______ ________ <continuation in byte 1>
+      TWO_CONTS, TWO_CONTS, TWO_CONTS, TWO_CONTS,
+      // 1100____ ________ <two byte lead in byte 1>
+      TOO_SHORT | OVERLONG_2,
+      // 1101____ ________ <two byte lead in byte 1>
+      TOO_SHORT,
+      // 1110____ ________ <three byte lead in byte 1>
+      TOO_SHORT | OVERLONG_3 | SURROGATE,
+      // 1111____ ________ <four+ byte lead in byte 1>
+      TOO_SHORT | TOO_LARGE | TOO_LARGE_1000 | OVERLONG_4
     );
+    constexpr const uint8_t CARRY = TOO_SHORT | TOO_LONG | TWO_CONTS; // These all have ____ in byte 1 .
     const simd8<uint8_t> byte_1_low = (prev1 & 0x0F).lookup_16<uint8_t>(
-      // ____[00__] ________
-      OVERLONG_2 | OVERLONG_3 | OVERLONG_4 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION, // ____[0000] ________
-      OVERLONG_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,                           // ____[0001] ________
-      TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[01__] ________
-      TOO_LARGE | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,                            // ____[0100] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[10__] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      // ____[11__] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,
-      TOO_LARGE_2 | SURROGATE | TOO_SHORT_2_3_4 | LONELY_CONTINUATION,              // ____[1101] ________
-      TOO_LARGE_2 | TOO_SHORT_2_3_4| LONELY_CONTINUATION,
-      TOO_LARGE_2 | TOO_SHORT_2_3_4 | LONELY_CONTINUATION
-    );
-    return byte_1_high & byte_1_low & byte_2_high;
-  }
+      // ____0000 ________
+      CARRY | OVERLONG_3 | OVERLONG_2 | OVERLONG_4,
+      // ____0001 ________
+      CARRY | OVERLONG_2,
+      // ____001_ ________
+      CARRY,
+      CARRY,
 
-  really_inline simd8<uint8_t> check_multibyte_lengths(simd8<uint8_t> input, simd8<uint8_t> prev_input,
-      simd8<uint8_t> prev1) {
+      // ____0100 ________
+      CARRY | TOO_LARGE,
+      // ____0101 ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      // ____011_ ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+
+      // ____1___ ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      // ____1101 ________
+      CARRY | TOO_LARGE | TOO_LARGE_1000 | SURROGATE,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000
+    );
+    const simd8<uint8_t> byte_2_high = input.shr<4>().lookup_16<uint8_t>(
+      // ________ 0_______ <ASCII in byte 2>
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT,
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT,
+
+      // ________ 1000____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE_1000 | OVERLONG_4,
+      // ________ 1001____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE,
+      // ________ 101_____
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE  | TOO_LARGE,
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE  | TOO_LARGE,
+
+      // ________ 11______
+      TOO_SHORT, TOO_SHORT, TOO_SHORT, TOO_SHORT
+    );
+    return (byte_1_high & byte_1_low & byte_2_high);
+  }
+  really_inline simd8<uint8_t> check_multibyte_lengths(const simd8<uint8_t> input,
+      const simd8<uint8_t> prev_input, const simd8<uint8_t> sc) {
     simd8<uint8_t> prev2 = input.prev<2>(prev_input);
     simd8<uint8_t> prev3 = input.prev<3>(prev_input);
-    // is_2_3_continuation uses one more instruction than lookup2
-    simd8<bool> is_2_3_continuation = (simd8<int8_t>(input).max(simd8<int8_t>(prev1))) < int8_t(-64);
-    // must_be_2_3_continuation has two fewer instructions than lookup 2
-    return simd8<uint8_t>(must_be_2_3_continuation(prev2, prev3) ^ is_2_3_continuation);
+    simd8<uint8_t> must23 = simd8<uint8_t>(must_be_2_3_continuation(prev2, prev3));
+    simd8<uint8_t> must23_80 = must23 & uint8_t(0x80);
+    return must23_80 ^ sc;
   }
-
 
   //
   // Return nonzero if there are incomplete multibyte characters at the end of the block:
   // e.g. if there is a 4-byte character, but it's 3 bytes from the end.
   //
-  really_inline simd8<uint8_t> is_incomplete(simd8<uint8_t> input) {
+  really_inline simd8<uint8_t> is_incomplete(const simd8<uint8_t> input) {
     // If the previous input's last 3 bytes match this, they're too short (they ended at EOF):
     // ... 1111____ 111_____ 11______
     static const uint8_t max_array[32] = {
@@ -12292,8 +11817,8 @@ namespace utf8_validation {
       // Flip prev1...prev3 so we can easily determine if they are 2+, 3+ or 4+ lead bytes
       // (2, 3, 4-byte leads become large positive numbers instead of small negative numbers)
       simd8<uint8_t> prev1 = input.prev<1>(prev_input);
-      this->error |= check_special_cases(input, prev1);
-      this->error |= check_multibyte_lengths(input, prev_input, prev1);
+      simd8<uint8_t> sc = check_special_cases(input, prev1);
+      this->error |= check_multibyte_lengths(input, prev_input, sc);
     }
 
     // The only problem that can happen at EOF is that a multibyte character is too short.
@@ -12303,30 +11828,37 @@ namespace utf8_validation {
       this->error |= this->prev_incomplete;
     }
 
-    really_inline void check_next_input(simd8x64<uint8_t> input) {
-      if (likely(is_ascii(input))) {
-        // If the previous block had incomplete UTF-8 characters at the end, an ASCII block can't
-        // possibly finish them.
+    really_inline void check_next_input(const simd8x64<uint8_t>& input) {
+      if(likely(is_ascii(input))) {
         this->error |= this->prev_incomplete;
       } else {
-        this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
-        for (int i=1; i<simd8x64<uint8_t>::NUM_CHUNKS; i++) {
-          this->check_utf8_bytes(input.chunks[i], input.chunks[i-1]);
+        // you might think that a for-loop would work, but under Visual Studio, it is not good enough.
+        static_assert((simd8x64<uint8_t>::NUM_CHUNKS == 2) || (simd8x64<uint8_t>::NUM_CHUNKS == 4),
+            "We support either two or four chunks per 64-byte block.");
+        if(simd8x64<uint8_t>::NUM_CHUNKS == 2) {
+          this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
+          this->check_utf8_bytes(input.chunks[1], input.chunks[0]);
+        } else if(simd8x64<uint8_t>::NUM_CHUNKS == 4) {
+          this->check_utf8_bytes(input.chunks[0], this->prev_input_block);
+          this->check_utf8_bytes(input.chunks[1], input.chunks[0]);
+          this->check_utf8_bytes(input.chunks[2], input.chunks[1]);
+          this->check_utf8_bytes(input.chunks[3], input.chunks[2]);
         }
         this->prev_incomplete = is_incomplete(input.chunks[simd8x64<uint8_t>::NUM_CHUNKS-1]);
         this->prev_input_block = input.chunks[simd8x64<uint8_t>::NUM_CHUNKS-1];
+
       }
     }
 
     really_inline error_code errors() {
-      return this->error.any_bits_set_anywhere() ? simdjson::UTF8_ERROR : simdjson::SUCCESS;
+      return this->error.any_bits_set_anywhere() ? error_code::UTF8_ERROR : error_code::SUCCESS;
     }
 
   }; // struct utf8_checker
 }
 
 using utf8_validation::utf8_checker;
-/* end file src/generic/stage1/utf8_lookup3_algorithm.h */
+/* end file src/generic/stage1/utf8_lookup4_algorithm.h */
 /* begin file src/generic/stage1/json_structural_indexer.h */
 // This file contains the common code every implementation uses in stage1
 // It is intended to be included multiple times and compiled multiple times
@@ -12401,7 +11933,7 @@ private:
   really_inline json_structural_indexer(uint32_t *structural_indexes);
   template<size_t STEP_SIZE>
   really_inline void step(const uint8_t *block, buf_block_reader<STEP_SIZE> &reader) noexcept;
-  really_inline void next(simd::simd8x64<uint8_t> in, json_block block, size_t idx);
+  really_inline void next(const simd::simd8x64<uint8_t>& in, json_block block, size_t idx);
   really_inline error_code finish(dom_parser_implementation &parser, size_t idx, size_t len, bool partial);
 
   json_scanner scanner{};
@@ -12470,7 +12002,7 @@ really_inline void json_structural_indexer::step<64>(const uint8_t *block, buf_b
   reader.advance();
 }
 
-really_inline void json_structural_indexer::next(simd::simd8x64<uint8_t> in, json_block block, size_t idx) {
+really_inline void json_structural_indexer::next(const simd::simd8x64<uint8_t>& in, json_block block, size_t idx) {
   uint64_t unescaped = in.lteq(0x1F);
   checker.check_next_input(in);
   indexer.write(uint32_t(idx-64), prev_structurals); // Output *last* iteration's structurals to the parser
@@ -12769,7 +12301,7 @@ void found_float(double result, const uint8_t *buf);
 TARGET_WESTMERE
 namespace simdjson {
 namespace westmere {
-static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
+static really_inline uint32_t parse_eight_digits_unrolled(const uint8_t *chars) {
   // this actually computes *16* values so we are being wasteful.
   const __m128i ascii0 = _mm_set1_epi8('0');
   const __m128i mul_1_10 =
@@ -12793,14 +12325,25 @@ static inline uint32_t parse_eight_digits_unrolled(const char *chars) {
 namespace stage2 {
 namespace numberparsing {
 
+#ifdef JSON_TEST_NUMBERS
+#define INVALID_NUMBER(SRC) (found_invalid_number((SRC)), false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) (found_integer((VALUE), (SRC)), writer.append_s64((VALUE)))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) (found_unsigned_integer((VALUE), (SRC)), writer.append_u64((VALUE)))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) (found_float((VALUE), (SRC)), writer.append_double((VALUE)))
+#else
+#define INVALID_NUMBER(SRC) (false)
+#define WRITE_INTEGER(VALUE, SRC, WRITER) writer.append_s64((VALUE))
+#define WRITE_UNSIGNED(VALUE, SRC, WRITER) writer.append_u64((VALUE))
+#define WRITE_DOUBLE(VALUE, SRC, WRITER) writer.append_double((VALUE))
+#endif
+
 // Attempts to compute i * 10^(power) exactly; and if "negative" is
 // true, negate the result.
 // This function will only work in some cases, when it does not work, success is
 // set to false. This should work *most of the time* (like 99% of the time).
 // We assume that power is in the [FASTFLOAT_SMALLEST_POWER,
 // FASTFLOAT_LARGEST_POWER] interval: the caller is responsible for this check.
-really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
-                                      bool *success) {
+really_inline double compute_float_64(int64_t power, uint64_t i, bool negative, bool *success) {
   // we start with a fast path
   // It was described in
   // Clinger WD. How to read floating point numbers accurately.
@@ -12980,9 +12523,9 @@ really_inline double compute_float_64(int64_t power, uint64_t i, bool negative,
   return d;
 }
 
-static bool parse_float_strtod(const char *ptr, double *outDouble) {
+static bool parse_float_strtod(const uint8_t *ptr, double *outDouble) {
   char *endptr;
-  *outDouble = strtod(ptr, &endptr);
+  *outDouble = strtod((const char *)ptr, &endptr);
   // Some libraries will set errno = ERANGE when the value is subnormal,
   // yet we may want to be able to parse subnormal values.
   // However, we do not want to tolerate NAN or infinite values.
@@ -13003,22 +12546,16 @@ static bool parse_float_strtod(const char *ptr, double *outDouble) {
   // a float that does not fit in binary64. JSON for Modern C++ (nlohmann/json)
   // will flat out throw an exception.
   //
-  if ((endptr == ptr) || (!std::isfinite(*outDouble))) {
+  if ((endptr == (const char *)ptr) || (!std::isfinite(*outDouble))) {
     return false;
   }
   return true;
 }
 
-really_inline bool is_integer(char c) {
-  return (c >= '0' && c <= '9');
-  // this gets compiled to (uint8_t)(c - '0') <= 9 on all decent compilers
-}
-
-
 // check quickly whether the next 8 chars are made of digits
 // at a glance, it looks better than Mula's
 // http://0x80.pl/articles/swar-digits-validate.html
-really_inline bool is_made_of_eight_digits_fast(const char *chars) {
+really_inline bool is_made_of_eight_digits_fast(const uint8_t *chars) {
   uint64_t val;
   // this can read up to 7 bytes beyond the buffer size, but we require
   // SIMDJSON_PADDING of padding
@@ -13033,110 +12570,140 @@ really_inline bool is_made_of_eight_digits_fast(const char *chars) {
           0x3333333333333333);
 }
 
-// called by parse_number when we know that the output is an integer,
-// but where there might be some integer overflow.
-// we want to catch overflows!
-// Do not call this function directly as it skips some of the checks from
-// parse_number
-//
-// This function will almost never be called!!!
-//
 template<typename W>
-never_inline bool parse_large_integer(const uint8_t *const src,
-                                      W writer,
-                                      bool found_minus) {
-  const char *p = reinterpret_cast<const char *>(src);
-
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-  }
-  uint64_t i;
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    i = 0;
-  } else {
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      if (mul_overflow(i, 10, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      if (add_overflow(i, digit, &i)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false; // overflow
-      }
-      ++p;
-    }
-  }
-  if (negative) {
-    if (i > 0x8000000000000000) {
-      // overflows!
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false; // overflow
-    } else if (i == 0x8000000000000000) {
-      // In two's complement, we cannot represent 0x8000000000000000
-      // as a positive signed integer, but the negative version is
-      // possible.
-      constexpr int64_t signed_answer = INT64_MIN;
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    } else {
-      // we can negate safely
-      int64_t signed_answer = -static_cast<int64_t>(i);
-      writer.append_s64(signed_answer);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(signed_answer, src);
-#endif
-    }
-  } else {
-    // we have a positive integer, the contract is that
-    // we try to represent it as a signed integer and only
-    // fallback on unsigned integers if absolutely necessary.
-    if (i < 0x8000000000000000) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_integer(i, src);
-#endif
-      writer.append_s64(i);
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_unsigned_integer(i, src);
-#endif
-      writer.append_u64(i);
-    }
-  }
-  return is_structural_or_whitespace(*p);
-}
-
-template<typename W>
-bool slow_float_parsing(UNUSED const char * src, W writer) {
+bool slow_float_parsing(UNUSED const uint8_t * src, W writer) {
   double d;
   if (parse_float_strtod(src, &d)) {
-    writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_float(d, (const uint8_t *)src);
-#endif
+    WRITE_DOUBLE(d, src, writer);
     return true;
   }
-#ifdef JSON_TEST_NUMBERS // for unit testing
-  found_invalid_number((const uint8_t *)src);
-#endif
-  return false;
+  return INVALID_NUMBER(src);
 }
+
+template<typename I>
+NO_SANITIZE_UNDEFINED // We deliberately allow overflow here and check later
+really_inline bool parse_digit(const uint8_t c, I &i) {
+  const uint8_t digit = static_cast<uint8_t>(c - '0');
+  if (digit > 9) {
+    return false;
+  }
+  // PERF NOTE: multiplication by 10 is cheaper than arbitrary integer multiplication
+  i = 10 * i + digit; // might overflow, we will handle the overflow later
+  return true;
+}
+
+really_inline bool parse_decimal(UNUSED const uint8_t *const src, const uint8_t *&p, uint64_t &i, int64_t &exponent) {
+  // we continue with the fiction that we have an integer. If the
+  // floating point number is representable as x * 10^z for some integer
+  // z that fits in 53 bits, then we will be able to convert back the
+  // the integer into a float in a lossless manner.
+  const uint8_t *const first_after_period = p;
+
+#ifdef SWAR_NUMBER_PARSING
+  // this helps if we have lots of decimals!
+  // this turns out to be frequent enough.
+  if (is_made_of_eight_digits_fast(p)) {
+    i = i * 100000000 + parse_eight_digits_unrolled(p);
+    p += 8;
+  }
+#endif
+  // Unrolling the first digit makes a small difference on some implementations (e.g. westmere)
+  if (parse_digit(*p, i)) { ++p; }
+  while (parse_digit(*p, i)) { p++; }
+  exponent = first_after_period - p;
+  // Decimal without digits (123.) is illegal
+  if (exponent == 0) {
+    return INVALID_NUMBER(src);
+  }
+  return true;
+}
+
+really_inline bool parse_exponent(UNUSED const uint8_t *const src, const uint8_t *&p, int64_t &exponent) {
+  // Exp Sign: -123.456e[-]78
+  bool neg_exp = ('-' == *p);
+  if (neg_exp || '+' == *p) { p++; } // Skip + as well
+
+  // Exponent: -123.456e-[78]
+  auto start_exp = p;
+  int64_t exp_number = 0;
+  while (parse_digit(*p, exp_number)) { ++p; }
+  exponent += (neg_exp ? -exp_number : exp_number);
+
+  // If there were no digits, it's an error.
+  // If there were more than 18 digits, we may have overflowed the integer.
+  if (unlikely(p == start_exp || p > start_exp+18)) {
+    // Skip leading zeroes: 1e000000000000000000001 is technically valid and doesn't overflow
+    while (*start_exp == '0') { start_exp++; }
+    // 19 digits could overflow int64_t and is kind of absurd anyway. We don't
+    // support exponents smaller than -9,999,999,999,999,999,999 and bigger
+    // than 9,999,999,999,999,999,999.
+    if (p == start_exp || p > start_exp+18) { return INVALID_NUMBER(src); }
+  }
+  return true;
+}
+
+template<typename W>
+really_inline bool write_float(const uint8_t *const src, bool negative, uint64_t i, const uint8_t * start_digits, int digit_count, int64_t exponent, W &writer) {
+  // If we frequently had to deal with long strings of digits,
+  // we could extend our code by using a 128-bit integer instead
+  // of a 64-bit integer. However, this is uncommon in practice.
+  // digit count is off by 1 because of the decimal (assuming there was one).
+  if (unlikely((digit_count-1 >= 19))) { // this is uncommon
+    // It is possible that the integer had an overflow.
+    // We have to handle the case where we have 0.0000somenumber.
+    const uint8_t *start = start_digits;
+    while ((*start == '0') || (*start == '.')) {
+      start++;
+    }
+    // we over-decrement by one when there is a '.'
+    digit_count -= int(start - start_digits);
+    if (digit_count >= 19) {
+      // Ok, chances are good that we had an overflow!
+      // this is almost never going to get called!!!
+      // we start anew, going slowly!!!
+      // This will happen in the following examples:
+      // 10000000000000000000000000000000000000000000e+308
+      // 3.1415926535897932384626433832795028841971693993751
+      //
+      bool success = slow_float_parsing(src, writer);
+      // The number was already written, but we made a copy of the writer
+      // when we passed it to the parse_large_integer() function, so
+      writer.skip_double();
+      return success;
+    }
+  }
+  // NOTE: it's weird that the unlikely() only wraps half the if, but it seems to get slower any other
+  // way we've tried: https://github.com/simdjson/simdjson/pull/990#discussion_r448497331
+  // To future reader: we'd love if someone found a better way, or at least could explain this result!
+  if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) || (exponent > FASTFLOAT_LARGEST_POWER)) {
+    // this is almost never going to get called!!!
+    // we start anew, going slowly!!!
+    bool success = slow_float_parsing(src, writer);
+    // The number was already written, but we made a copy of the writer when we passed it to the
+    // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
+    writer.skip_double();
+    return success;
+  }
+  bool success = true;
+  double d = compute_float_64(exponent, i, negative, &success);
+  if (!success) {
+    // we are almost never going to get here.
+    if (!parse_float_strtod(src, &d)) { return INVALID_NUMBER(src); }
+  }
+  WRITE_DOUBLE(d, src, writer);
+  return true;
+}
+
+// for performance analysis, it is sometimes  useful to skip parsing
+#ifdef SIMDJSON_SKIPNUMBERPARSING
+
+template<typename W>
+really_inline bool parse_number(const uint8_t *const, W &writer) {
+  writer.append_s64(0);        // always write zero
+  return true;                 // always succeeds
+}
+
+#else
 
 // parse the number at src
 // define JSON_TEST_NUMBERS for unit testing
@@ -13148,217 +12715,84 @@ bool slow_float_parsing(UNUSED const char * src, W writer) {
 //
 // Our objective is accurate parsing (ULP of 0) at high speed.
 template<typename W>
-really_inline bool parse_number(UNUSED const uint8_t *const src,
-                                UNUSED bool found_minus,
-                                W &writer) {
-#ifdef SIMDJSON_SKIPNUMBERPARSING // for performance analysis, it is sometimes
-                                  // useful to skip parsing
-  writer.append_s64(0);        // always write zero
-  return true;                    // always succeeds
-#else
-  const char *p = reinterpret_cast<const char *>(src);
-  bool negative = false;
-  if (found_minus) {
-    ++p;
-    negative = true;
-    if (!is_integer(*p)) { // a negative sign must be followed by an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-  }
-  const char *const start_digits = p;
+really_inline bool parse_number(const uint8_t *const src, W &writer) {
 
-  uint64_t i;      // an unsigned int avoids signed overflows (which are bad)
-  if (*p == '0') { // 0 cannot be followed by an integer
-    ++p;
-    if (is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    i = 0;
-  } else {
-    if (!(is_integer(*p))) { // must start with an integer
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    i = digit;
-    p++;
-    // the is_made_of_eight_digits_fast routine is unlikely to help here because
-    // we rarely see large integer parts like 123456789
-    while (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      // a multiplication by 10 is cheaper than an arbitrary integer
-      // multiplication
-      i = 10 * i + digit; // might overflow, we will handle the overflow later
-      ++p;
-    }
-  }
+  //
+  // Check for minus sign
+  //
+  bool negative = (*src == '-');
+  const uint8_t *p = src + negative;
+
+  //
+  // Parse the integer part.
+  //
+  // PERF NOTE: we don't use is_made_of_eight_digits_fast because large integers like 123456789 are rare
+  const uint8_t *const start_digits = p;
+  uint64_t i = 0;
+  while (parse_digit(*p, i)) { p++; }
+
+  // If there were no digits, or if the integer starts with 0 and has more than one digit, it's an error.
+  int digit_count = int(p - start_digits);
+  if (digit_count == 0 || ('0' == *start_digits && digit_count > 1)) { return INVALID_NUMBER(src); }
+
+  //
+  // Handle floats if there is a . or e (or both)
+  //
   int64_t exponent = 0;
   bool is_float = false;
   if ('.' == *p) {
-    is_float = true; // At this point we know that we have a float
-    // we continue with the fiction that we have an integer. If the
-    // floating point number is representable as x * 10^z for some integer
-    // z that fits in 53 bits, then we will be able to convert back the
-    // the integer into a float in a lossless manner.
+    is_float = true;
     ++p;
-    const char *const first_after_period = p;
-    if (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // might overflow + multiplication by 10 is likely
-                          // cheaper than arbitrary mult.
-      // we will handle the overflow later
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-#ifdef SWAR_NUMBER_PARSING
-    // this helps if we have lots of decimals!
-    // this turns out to be frequent enough.
-    if (is_made_of_eight_digits_fast(p)) {
-      i = i * 100000000 + parse_eight_digits_unrolled(p);
-      p += 8;
-    }
-#endif
-    while (is_integer(*p)) {
-      unsigned char digit = static_cast<unsigned char>(*p - '0');
-      ++p;
-      i = i * 10 + digit; // in rare cases, this will overflow, but that's ok
-                          // because we have parse_highprecision_float later.
-    }
-    exponent = first_after_period - p;
+    if (!parse_decimal(src, p, i, exponent)) { return false; }
+    digit_count = int(p - start_digits); // used later to guard against overflows
   }
-  int digit_count =
-      int(p - start_digits) - 1; // used later to guard against overflows
-  int64_t exp_number = 0;   // exponential part
   if (('e' == *p) || ('E' == *p)) {
     is_float = true;
     ++p;
-    bool neg_exp = false;
-    if ('-' == *p) {
-      neg_exp = true;
-      ++p;
-    } else if ('+' == *p) {
-      ++p;
-    }
-    if (!is_integer(*p)) {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
-    unsigned char digit = static_cast<unsigned char>(*p - '0');
-    exp_number = digit;
-    p++;
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    if (is_integer(*p)) {
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    while (is_integer(*p)) {
-      if (exp_number > 0x100000000) { // we need to check for overflows
-                                      // we refuse to parse this
-#ifdef JSON_TEST_NUMBERS // for unit testing
-        found_invalid_number(src);
-#endif
-        return false;
-      }
-      digit = static_cast<unsigned char>(*p - '0');
-      exp_number = 10 * exp_number + digit;
-      ++p;
-    }
-    exponent += (neg_exp ? -exp_number : exp_number);
+    if (!parse_exponent(src, p, exponent)) { return false; }
   }
   if (is_float) {
-    // If we frequently had to deal with long strings of digits,
-    // we could extend our code by using a 128-bit integer instead
-    // of a 64-bit integer. However, this is uncommon in practice.
-    if (unlikely((digit_count >= 19))) { // this is uncommon
-      // It is possible that the integer had an overflow.
-      // We have to handle the case where we have 0.0000somenumber.
-      const char *start = start_digits;
-      while ((*start == '0') || (*start == '.')) {
-        start++;
+    return write_float(src, negative, i, start_digits, digit_count, exponent, writer);
+  }
+
+  // The longest negative 64-bit number is 19 digits.
+  // The longest positive 64-bit number is 20 digits.
+  // We do it this way so we don't trigger this branch unless we must.
+  int longest_digit_count = negative ? 19 : 20;
+  if (digit_count > longest_digit_count) { return INVALID_NUMBER(src); }
+  if (digit_count == longest_digit_count) {
+    if(negative) {
+      // Anything negative above INT64_MAX+1 is invalid
+      if (i > uint64_t(INT64_MAX)+1) {
+        return INVALID_NUMBER(src); 
       }
-      // we over-decrement by one when there is a '.'
-      digit_count -= int(start - start_digits);
-      if (digit_count >= 19) {
-        // Ok, chances are good that we had an overflow!
-        // this is almost never going to get called!!!
-        // we start anew, going slowly!!!
-        // This will happen in the following examples:
-        // 10000000000000000000000000000000000000000000e+308
-        // 3.1415926535897932384626433832795028841971693993751
-        //
-        bool success = slow_float_parsing((const char *) src, writer);
-        // The number was already written, but we made a copy of the writer
-        // when we passed it to the parse_large_integer() function, so
-        writer.skip_double();
-        return success;
-      }
-    }
-    if (unlikely(exponent < FASTFLOAT_SMALLEST_POWER) ||
-        (exponent > FASTFLOAT_LARGEST_POWER)) { // this is uncommon!!!
-      // this is almost never going to get called!!!
-      // we start anew, going slowly!!!
-      bool success = slow_float_parsing((const char *) src, writer);
-      // The number was already written, but we made a copy of the writer when we passed it to the
-      // slow_float_parsing() function, so we have to skip those tape spots now that we've returned
-      writer.skip_double();
-      return success;
-    }
-    bool success = true;
-    double d = compute_float_64(exponent, i, negative, &success);
-    if (!success) {
-      // we are almost never going to get here.
-      success = parse_float_strtod((const char *)src, &d);
-    }
-    if (success) {
-      writer.append_double(d);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_float(d, src);
-#endif
-      return true;
-    } else {
-#ifdef JSON_TEST_NUMBERS // for unit testing
-      found_invalid_number(src);
-#endif
-      return false;
-    }
+      WRITE_INTEGER(~i+1, src, writer);
+      return is_structural_or_whitespace(*p);
+    // Positive overflow check:
+    // - A 20 digit number starting with 2-9 is overflow, because 18,446,744,073,709,551,615 is the
+    //   biggest uint64_t.
+    // - A 20 digit number starting with 1 is overflow if it is less than INT64_MAX.
+    //   If we got here, it's a 20 digit number starting with the digit "1".
+    // - If a 20 digit number starting with 1 overflowed (i*10+digit), the result will be smaller
+    //   than 1,553,255,926,290,448,384.
+    // - That is smaller than the smallest possible 20-digit number the user could write:
+    //   10,000,000,000,000,000,000.
+    // - Therefore, if the number is positive and lower than that, it's overflow.
+    // - The value we are looking at is less than or equal to 9,223,372,036,854,775,808 (INT64_MAX).
+    //
+    }  else if (src[0] != uint8_t('1') || i <= uint64_t(INT64_MAX)) { return INVALID_NUMBER(src); }
+  }
+
+  // Write unsigned if it doesn't fit in a signed integer.
+  if (i > uint64_t(INT64_MAX)) {
+    WRITE_UNSIGNED(i, src, writer);
   } else {
-    if (unlikely(digit_count >= 18)) { // this is uncommon!!!
-      // there is a good chance that we had an overflow, so we need
-      // need to recover: we parse the whole thing again.
-      bool success = parse_large_integer(src, writer, found_minus);
-      // The number was already written, but we made a copy of the writer
-      // when we passed it to the parse_large_integer() function, so
-      writer.skip_large_integer();
-      return success;
-    }
-    i = negative ? 0 - i : i;
-    writer.append_s64(i);
-#ifdef JSON_TEST_NUMBERS // for unit testing
-    found_integer(i, src);
-#endif
+    WRITE_INTEGER(negative ? (~i+1) : i, src, writer);
   }
   return is_structural_or_whitespace(*p);
-#endif // SIMDJSON_SKIPNUMBERPARSING
 }
+
+#endif // SIMDJSON_SKIPNUMBERPARSING
 
 } // namespace numberparsing
 } // namespace stage2
@@ -13446,15 +12880,26 @@ namespace logger {
 namespace stage2 {
 namespace atomparsing {
 
-really_inline uint32_t string_to_uint32(const char* str) { return *reinterpret_cast<const uint32_t *>(str); }
+namespace{
+// The string_to_uint32 is exclusively used to map literal strings to 32-bit values.
+// We use memcpy instead of a pointer cast to avoid undefined behaviors since we cannot
+// be certain that the character pointer will be properly aligned.
+// You might think that using memcpy makes this function expensive, but you'd be wrong.
+// All decent optimizing compilers (GCC, clang, Visual Studio) will compile string_to_uint32("false");
+// to the compile-time constant 1936482662.
+really_inline uint32_t string_to_uint32(const char* str) { uint32_t val; std::memcpy(&val, str, sizeof(uint32_t)); return val; }
 
+
+// Again in str4ncmp we use a memcpy to avoid undefined behavior. The memcpy may appear expensive.
+// Yet all decent optimizing compilers will compile memcpy to a single instruction, just about.
 WARN_UNUSED
 really_inline uint32_t str4ncmp(const uint8_t *src, const char* atom) {
-  uint32_t srcval; // we want to avoid unaligned 64-bit loads (undefined in C/C++)
+  uint32_t srcval; // we want to avoid unaligned 32-bit loads (undefined in C/C++)
   static_assert(sizeof(uint32_t) <= SIMDJSON_PADDING, "SIMDJSON_PADDING must be larger than 4 bytes");
   std::memcpy(&srcval, src, sizeof(uint32_t));
   return srcval ^ string_to_uint32(atom);
 }
+} // anonymous namespace
 
 WARN_UNUSED
 really_inline bool is_valid_true_atom(const uint8_t *src) {
@@ -13529,31 +12974,7 @@ public:
   really_inline size_t remaining_len() {
     return parser.len - *current_structural;
   }
-  template<typename F>
-  really_inline bool with_space_terminated_copy(const F& f) {
-    /**
-    * We need to make a copy to make sure that the string is space terminated.
-    * This is not about padding the input, which should already padded up
-    * to len + SIMDJSON_PADDING. However, we have no control at this stage
-    * on how the padding was done. What if the input string was padded with nulls?
-    * It is quite common for an input string to have an extra null character (C string).
-    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
-    * document, but the string "9\0" by itself is fine. So we make a copy and
-    * pad the input with spaces when we know that there is just one input element.
-    * This copy is relatively expensive, but it will almost never be called in
-    * practice unless you are in the strange scenario where you have many JSON
-    * documents made of single atoms.
-    */
-    char *copy = static_cast<char *>(malloc(parser.len + SIMDJSON_PADDING));
-    if (copy == nullptr) {
-      return true;
-    }
-    memcpy(copy, buf, parser.len);
-    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
-    bool result = f(reinterpret_cast<const uint8_t*>(copy), *current_structural);
-    free(copy);
-    return result;
-  }
+
   really_inline bool past_end(uint32_t n_structural_indexes) {
     return current_structural >= &parser.structural_indexes[n_structural_indexes];
   }
@@ -13825,16 +13246,41 @@ struct structural_parser : structural_iterator {
     return false;
   }
 
-  WARN_UNUSED really_inline bool parse_number(const uint8_t *src, bool found_minus) {
+  WARN_UNUSED really_inline bool parse_number(const uint8_t *src) {
     log_value("number");
-    bool succeeded = numberparsing::parse_number(src, found_minus, tape);
+    bool succeeded = numberparsing::parse_number(src, tape);
     if (!succeeded) { log_error("Invalid number"); }
     return !succeeded;
   }
-  WARN_UNUSED really_inline bool parse_number(bool found_minus) {
-    return parse_number(current(), found_minus);
+  WARN_UNUSED really_inline bool parse_number() {
+    return parse_number(current());
   }
 
+  really_inline bool parse_number_with_space_terminated_copy() {
+    /**
+    * We need to make a copy to make sure that the string is space terminated.
+    * This is not about padding the input, which should already padded up
+    * to len + SIMDJSON_PADDING. However, we have no control at this stage
+    * on how the padding was done. What if the input string was padded with nulls?
+    * It is quite common for an input string to have an extra null character (C string).
+    * We do not want to allow 9\0 (where \0 is the null character) inside a JSON
+    * document, but the string "9\0" by itself is fine. So we make a copy and
+    * pad the input with spaces when we know that there is just one input element.
+    * This copy is relatively expensive, but it will almost never be called in
+    * practice unless you are in the strange scenario where you have many JSON
+    * documents made of single atoms.
+    */
+    uint8_t *copy = static_cast<uint8_t *>(malloc(parser.len + SIMDJSON_PADDING));
+    if (copy == nullptr) {
+      return true;
+    }
+    memcpy(copy, buf, parser.len);
+    memset(copy + parser.len, ' ', SIMDJSON_PADDING);
+    size_t idx = *current_structural;
+    bool result = parse_number(&copy[idx]); // parse_number does not throw
+    free(copy);
+    return result;
+  }
   WARN_UNUSED really_inline ret_address_t parse_value(const unified_machine_addresses &addresses, ret_address_t continue_state) {
     switch (advance_char()) {
     case '"':
@@ -13855,12 +13301,10 @@ struct structural_parser : structural_iterator {
       FAIL_IF( !atomparsing::is_valid_null_atom(current()) );
       tape.append(0, internal::tape_type::NULL_VALUE);
       return continue_state;
+    case '-':
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
-      FAIL_IF( parse_number(false) );
-      return continue_state;
-    case '-':
-      FAIL_IF( parse_number(true) );
+      FAIL_IF( parse_number() );
       return continue_state;
     case '{':
       FAIL_IF( start_object(continue_state) );
@@ -13972,6 +13416,7 @@ struct structural_parser : structural_iterator {
 #undef FAIL_IF
 #define FAIL_IF(EXPR) { if (EXPR) { goto error; } }
 
+
 template<bool STREAMING>
 WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_parser, dom::document &doc) noexcept {
   dom_parser.doc = &doc;
@@ -14015,20 +13460,13 @@ WARN_UNUSED static error_code parse_structurals(dom_parser_implementation &dom_p
     FAIL_IF( !atomparsing::is_valid_null_atom(parser.current(), parser.remaining_len()) );
     parser.tape.append(0, internal::tape_type::NULL_VALUE);
     goto finish;
+  case '-':
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], false);
-      })
-    );
-    goto finish;
-  case '-':
-    FAIL_IF(
-      parser.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
-        return parser.parse_number(&copy[idx], true);
-      })
-    );
+    // Next line used to be an interesting functional programming exercise with
+    // a lambda that gets passed to another function via a closure. This would confuse the
+    // clangcl compiler under Visual Studio 2019 (recent release).
+    FAIL_IF(parser.parse_number_with_space_terminated_copy());
     goto finish;
   default:
     parser.log_error("Document starts with a non-value character");
