@@ -115,7 +115,8 @@ bool element_eq(simdjson::dom::object lhs, simdjson::dom::object rhs) {
     return lhs.size() == rhs.size() &&
            std::equal(lhs.begin(), lhs.end(), rhs.begin(), [](auto a, auto b) {
                return a.key == b.key && as_static_type(a.value, [&](auto a_static) {
-                          if constexpr (std::is_same_v<decltype(a_static), std::nullptr_t>) {
+                          if constexpr (std::is_same_v<decltype(a_static),
+                                                       std::nullptr_t>) {
                               return b.value.type() ==
                                      simdjson::dom::element_type::NULL_VALUE;
                           }
