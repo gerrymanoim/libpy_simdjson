@@ -35,6 +35,12 @@ def array_element():
 
 
 @pytest.fixture
+def heterogeneous_array_element():
+    file_path = JSON_FIXTURES_DIR / "small/truenull.json"
+    return simdjson.load(bytes(file_path))
+
+
+@pytest.fixture
 def py_array_element():
     file_path = JSON_FIXTURES_DIR / "small/smalllist.json"
     return json.load(file_path.open())
