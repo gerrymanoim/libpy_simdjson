@@ -7,10 +7,38 @@
 #include <libpy/autofunction.h>
 #include <libpy/automodule.h>
 #include <libpy/build_tuple.h>
+#include <libpy/itertools.h>
 #include <libpy/to_object.h>
 #include <range/v3/all.hpp>
 
 #include "simdjson.h"
+
+namespace libpy_simdjson {
+template<typename F>
+decltype(auto) as_static_type(simdjson::dom::element el, F&& f) {
+    switch (el.type()) {
+    case simdjson::dom::element_type::ARRAY:
+        return std::forward<F>(f)(simdjson::dom::array(el));
+    case simdjson::dom::element_type::OBJECT:
+        return std::forward<F>(f)(simdjson::dom::object(el));
+    case simdjson::dom::element_type::INT64:
+        return std::forward<F>(f)(int64_t(el));
+    case simdjson::dom::element_type::UINT64:
+        return std::forward<F>(f)(uint64_t(el));
+    case simdjson::dom::element_type::DOUBLE:
+        return std::forward<F>(f)(double(el));
+    case simdjson::dom::element_type::STRING:
+        return std::forward<F>(f)(std::string_view(el));
+    case simdjson::dom::element_type::BOOL:
+        return std::forward<F>(f)(bool(el));
+    case simdjson::dom::element_type::NULL_VALUE:
+        return std::forward<F>(f)(nullptr);
+    default:
+        throw py::exception(PyExc_ValueError, "Unexpected element_type encountered");
+    }
+}
+
+}  // namespace libpy_simdjson
 
 namespace py::dispatch {
 
@@ -24,27 +52,14 @@ struct to_object<simdjson::dom::object> : public map_to_object<simdjson::dom::ob
 template<>
 struct to_object<simdjson::dom::element> {
     static py::owned_ref<> f(const simdjson::dom::element& element) {
-        auto element_type = element.type();
-        switch (element_type) {
-        case simdjson::dom::element_type::ARRAY:
-            return py::to_object(simdjson::dom::array(element));
-        case simdjson::dom::element_type::OBJECT:
-            return py::to_object(simdjson::dom::object(element));
-        case simdjson::dom::element_type::INT64:
-            return py::to_object(int64_t(element));
-        case simdjson::dom::element_type::UINT64:
-            return py::to_object(uint64_t(element));
-        case simdjson::dom::element_type::DOUBLE:
-            return py::to_object(double(element));
-        case simdjson::dom::element_type::STRING:
-            return py::to_object(std::string_view(element));
-        case simdjson::dom::element_type::BOOL:
-            return py::to_object(bool(element));
-        case simdjson::dom::element_type::NULL_VALUE:
-            return py::none;
-        default:
-            throw py::exception(PyExc_ValueError, "Unexpected element_type encountered");
-        }
+        return libpy_simdjson::as_static_type(element, [](auto el) {
+            if constexpr (std::is_same_v<decltype(el), std::nullptr_t>) {
+                return py::none;
+            }
+            else {
+                return py::to_object(el);
+            }
+        });
     }
 };
 
@@ -70,6 +85,51 @@ struct to_object<simdjson::dom::key_value_pair> {
 }  // namespace py::dispatch
 
 namespace libpy_simdjson {
+
+template<typename T>
+bool element_eq(T a, T b) {
+    return a == b;
+}
+
+bool element_eq(simdjson::dom::object lhs, simdjson::dom::object rhs);
+
+bool element_eq(simdjson::dom::array lhs, simdjson::dom::array rhs) {
+    return lhs.size() == rhs.size() &&
+           std::equal(lhs.begin(), lhs.end(), rhs.begin(), [](auto a, auto b) {
+               return as_static_type(a, [&](auto a_static) {
+                   if constexpr (std::is_same_v<decltype(a_static), std::nullptr_t>) {
+                       return b.type() == simdjson::dom::element_type::NULL_VALUE;
+                   }
+                   else {
+                       decltype(a_static) b_static;
+                       if (b.get(b_static)) {
+                           return false;
+                       }
+                       return element_eq(a_static, b_static);
+                   }
+               });
+           });
+}
+
+bool element_eq(simdjson::dom::object lhs, simdjson::dom::object rhs) {
+    return lhs.size() == rhs.size() &&
+           std::equal(lhs.begin(), lhs.end(), rhs.begin(), [](auto a, auto b) {
+               return a.key == b.key && as_static_type(a.value, [&](auto a_static) {
+                          if constexpr (std::is_same_v<decltype(a_static),
+                                                       std::nullptr_t>) {
+                              return b.value.type() ==
+                                     simdjson::dom::element_type::NULL_VALUE;
+                          }
+                          else {
+                              decltype(a_static) b_static;
+                              if (b.value.get(b_static)) {
+                                  return false;
+                              }
+                              return element_eq(a_static, b_static);
+                          }
+                      });
+           });
+}
 
 class parser : public std::enable_shared_from_this<parser> {
 private:
@@ -147,6 +207,14 @@ public:
     auto end() const {
         return keys_range().end();
     }
+
+    bool operator==(const object_element& other) {
+        if (this->size() != other.size()) {
+            return false;
+        }
+
+        return element_eq(this->m_value, other.m_value);
+    }
 };
 
 class array_element {
@@ -160,27 +228,32 @@ public:
 
     py::owned_ref<> at(const std::string& json_pntr);
 
-    // py::owned_ref<> count(py::borrowed_ref elem) {
-    //     return std::count(m_value.begin(), m_value.end(), elem);
-    // }
     py::owned_ref<> operator[](std::ptrdiff_t index);
 
     py::owned_ref<> as_list() {
         return py::to_object(m_value);
     }
 
-    std::size_t size() {
+    std::size_t size() const {
         return m_value.size();
     }
 
     typedef simdjson::dom::array::iterator iterator;
 
-    iterator begin() {
+    iterator begin() const {
         return m_value.begin();
     }
 
-    iterator end() {
+    iterator end() const {
         return m_value.end();
+    }
+
+    bool operator==(const array_element& other) {
+        if (this->size() != other.size()) {
+            return false;
+        }
+
+        return element_eq(this->m_value, other.m_value);
     }
 };
 
@@ -295,6 +368,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
         .def<&object_element::keys>("keys")
         .def<&object_element::values>("values")
         .def<&object_element::items>("items")
+        .comparisons<object_element>()
         .len()
         .iter()
         .type();
@@ -302,6 +376,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
         .def<&array_element::at>("at")
         .def<&array_element::as_list>("as_list")
         .mapping<std::ptrdiff_t>()
+        .comparisons<array_element>()
         .len()
         .iter()
         .type();

@@ -1,4 +1,9 @@
+from pathlib import Path
+
 import libpy_simdjson as simdjson
+
+
+JSON_FIXTURES_DIR = Path(__file__).parent / "jsonexamples"
 
 
 def test_as_dict(object_element, py_object_element):
@@ -56,3 +61,15 @@ def test_at(object_element):
     assert object_element.at(b"Width") == 800
     assert isinstance(object_element.at(b"array"), simdjson.Array)
     assert object_element.at(b"array/0") == 116
+
+
+def get_new_object_element(object_element):
+    return object_element
+
+
+def test_equality():
+    file_path = JSON_FIXTURES_DIR / "small/smalldemo.json"
+    elem_1 = simdjson.load(bytes(file_path))
+    elem_2 = simdjson.load(bytes(file_path))
+
+    assert elem_1 == elem_2
