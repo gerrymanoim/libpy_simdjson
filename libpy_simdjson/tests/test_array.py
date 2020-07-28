@@ -34,6 +34,8 @@ def test_equality():
     elem_2 = simdjson.load(bytes(file_path))
 
     assert elem_1 == elem_2
+
+
 def test_count_specialzied(array_element):
     assert array_element.count(19) == 5
 

@@ -248,14 +248,14 @@ public:
         return m_value.end();
     }
 
-<<<<<<< HEAD
     bool operator==(const array_element& other) {
         if (this->size() != other.size()) {
             return false;
         }
 
         return element_eq(this->m_value, other.m_value);
-=======
+    }
+    
 private:
     template<simdjson::dom::element_type type, typename T>
     std::size_t specialized_count(py::borrowed_ref<> generic_needle,
