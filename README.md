@@ -1,6 +1,7 @@
 # libpy simdjson
 
 ![On Master Merge](https://github.com/gerrymanoim/libpy_simdjson/workflows/On%20Master%20Merge/badge.svg)
+[![PyPI version](https://badge.fury.io/py/libpy-simdjson.svg)](https://badge.fury.io/py/libpy-simdjson)
 
 Python bindings for [simdjson](https://github.com/simdjson/simdjson/) using [libpy](https://github.com/quantopian/libpy).
 
