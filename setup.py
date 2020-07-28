@@ -43,7 +43,7 @@ install_requires = [
 
 setup(
     name="libpy_simdjson",
-    version="0.1.0",
+    version="0.2.0",
     description="Python bindings for smidjson, using libpy",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
