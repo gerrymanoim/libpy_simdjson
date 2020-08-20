@@ -58,9 +58,9 @@ def test_mapping(object_element):
 
 
 def test_at(object_element):
-    assert object_element.at(b"Width") == 800
-    assert isinstance(object_element.at(b"array"), simdjson.Array)
-    assert object_element.at(b"array/0") == 116
+    assert object_element.at_pointer(b"/Width") == 800
+    assert isinstance(object_element.at_pointer(b"/array"), simdjson.Array)
+    assert object_element.at_pointer(b"/array/0") == 116
 
 
 def get_new_object_element(object_element):

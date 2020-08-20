@@ -25,7 +25,7 @@ def test_indexing(array_element):
 
 
 def test_at(array_element):
-    assert array_element.at(b"5") == 5
+    assert array_element.at_pointer(b"/5") == 5
 
 
 def test_equality():

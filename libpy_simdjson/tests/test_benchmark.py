@@ -77,8 +77,8 @@ def test_benchmark_at(group, read_func, benchmark):
 
     def simd_test_func(doc):
         selection = random.randrange(100)
-        at_str = f"statuses/{selection}/user/id".encode()
-        doc.at(at_str)
+        at_str = f"/statuses/{selection}/user/id".encode()
+        doc.at_pointer(at_str)
 
     def py_test_func(doc):
         selection = random.randrange(100)
@@ -131,4 +131,3 @@ def test_benchmark_list_access(group, read_func, benchmark):
         content = f.read()
         doc = read_func(content)
         benchmark(bench_func, doc)
-
