@@ -168,7 +168,7 @@ public:
 
     py::owned_ref<> operator[](const std::string& field);
 
-    py::owned_ref<> at(const std::string& json_pntr);
+    py::owned_ref<> at_pointer(const std::string& json_pntr);
 
     py::owned_ref<> items() const {
         return py::dispatch::sequence_to_object<simdjson::dom::object>::f(m_value);
@@ -226,7 +226,7 @@ public:
     array_element(std::shared_ptr<parser> parser_pntr, simdjson::dom::array value)
         : m_parser(parser_pntr), m_value(value) {}
 
-    py::owned_ref<> at(const std::string& json_pntr);
+    py::owned_ref<> at_pointer(const std::string& json_pntr);
 
     py::owned_ref<> operator[](std::ptrdiff_t index);
 
@@ -255,7 +255,7 @@ public:
 
         return element_eq(this->m_value, other.m_value);
     }
-    
+
 private:
     template<simdjson::dom::element_type type, typename T>
     std::size_t specialized_count(py::borrowed_ref<> generic_needle,
@@ -490,9 +490,9 @@ py::owned_ref<> object_element::operator[](const std::string& field) {
     return disambiguate_result(m_parser, m_value[field]);
 }
 
-py::owned_ref<> object_element::at(const std::string& json_pntr) {
+py::owned_ref<> object_element::at_pointer(const std::string& json_pntr) {
     simdjson::dom::element result;
-    auto maybe_result = m_value.at(json_pntr);
+    auto maybe_result = m_value.at_pointer(json_pntr);
     auto error = maybe_result.get(result);
     if (error) {
         throw py::exception(PyExc_KeyError, json_pntr);
@@ -500,9 +500,9 @@ py::owned_ref<> object_element::at(const std::string& json_pntr) {
     return disambiguate_result(m_parser, result);
 }
 
-py::owned_ref<> array_element::at(const std::string& json_pntr) {
+py::owned_ref<> array_element::at_pointer(const std::string& json_pntr) {
     simdjson::dom::element result;
-    auto maybe_result = m_value.at(json_pntr);
+    auto maybe_result = m_value.at_pointer(json_pntr);
     auto error = maybe_result.get(result);
     if (error) {
         throw py::exception(PyExc_IndexError, json_pntr);
@@ -551,7 +551,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
         .type();
     py::autoclass<object_element>(m, "Object")
         .mapping<std::string>()
-        .def<&object_element::at>("at")
+        .def<&object_element::at_pointer>("at_pointer")
         .def<&object_element::as_dict>("as_dict")
         .def<&object_element::keys>("keys")
         .def<&object_element::values>("values")
@@ -561,7 +561,7 @@ LIBPY_AUTOMODULE(libpy_simdjson,
         .iter()
         .type();
     py::autoclass<array_element>(m, "Array")
-        .def<&array_element::at>("at")
+        .def<&array_element::at_pointer>("at_pointer")
         .def<&array_element::as_list>("as_list")
         .def<&array_element::count>("count")
         .def<&array_element::index>("index")

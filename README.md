@@ -117,11 +117,11 @@ doc[b'search_metadata'].as_dict()
 
 
 
-However, we also support [JSON Pointer](https://tools.ietf.org/html/rfc6901) sytnax via `at`. This will be much faster if you know what you're looking for:
+However, we also support [JSON Pointer](https://tools.ietf.org/html/rfc6901) sytnax via `at_pointer`. This will be much faster if you know what you're looking for:
 
 
 ```python
-doc.at(b"statuses/50/created_at")
+doc.at_pointer(b"/statuses/50/created_at")
 ```
 
 
@@ -133,7 +133,7 @@ doc.at(b"statuses/50/created_at")
 
 
 ```python
-doc.at(b"statuses/50/text").decode()
+doc.at_pointer(b"/statuses/50/text").decode()
 ```
 
 
@@ -229,11 +229,11 @@ statuses.as_list()[1][b'metadata']
 
 
 
-However, just like for Objects, we support JSON Pointers via `at`, which is much faster:
+However, just like for Objects, we support JSON Pointers via `at_pointer`, which is much faster:
 
 
 ```python
-statuses.at(b"33/created_at")
+statuses.at_pointer(b"/33/created_at")
 ```
 
     b'Sun Aug 31 00:29:06 +0000 2014'
