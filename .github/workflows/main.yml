@@ -25,7 +25,7 @@ jobs:
     - name: Set release name env variable (ubuntu)
       if: startsWith(matrix.os, 'ubuntu')
       run: |
-        echo ::set-env name=UBUNTU_RELEASE::$(lsb_release -sc)
+        echo "UBUNTU_RELEASE=$(lsb_release -sc)" >> $GITHUB_ENV
     - name: Install newer clang (ubuntu)
       if: startsWith(matrix.os, 'ubuntu') && matrix.compiler == 'clang'
       run: |
@@ -33,7 +33,7 @@ jobs:
         sudo add-apt-repository "deb http://apt.llvm.org/$UBUNTU_RELEASE/ llvm-toolchain-$UBUNTU_RELEASE-10 main" -y
         sudo apt-get update -q
         sudo apt-get install -y clang-10 lld-10 libc++-10-dev libc++abi-10-dev clang-tools-10
-        echo ::set-env name=AR::llvm-ar-10
+        echo "AR=llvm-ar-10" >> $GITHUB_ENV
     - name: Install newer clang (macos)
       if: startsWith(matrix.os, 'macos') && matrix.compiler == 'clang'
       run: |
@@ -45,21 +45,21 @@ jobs:
     - name: Set llvm related envvars (macos)
       if: startsWith(matrix.os, 'macos')
       run: |
-        echo ::set-env name=EXTRA_INCLUDE_DIRS::/usr/local/include/
-        echo ::add-path::/usr/local/opt/llvm/bin
-        echo ::set-env name=LDFLAGS::-L/usr/local/opt/llvm/lib
-        echo ::set-env name=CPPFLAGS::-I/usr/local/opt/llvm/include
-        echo ::set-env name=AR::llvm-ar
+        echo "EXTRA_INCLUDE_DIRS=/usr/local/include/" >> $GITHUB_ENV
+        echo "/usr/local/opt/llvm/bin" >> $GITHUB_PATH
+        echo "LDFLAGS=-L/usr/local/opt/llvm/lib" >> $GITHUB_ENV
+        echo "CPPFLAGS=-I/usr/local/opt/llvm/include" >> $GITHUB_ENV
+        echo "AR=llvm-ar" >> $GITHUB_ENV
     - name: Set clang envvars
       if: matrix.compiler == 'clang'
       run: |
-        echo ::set-env name=CC::clang-10
-        echo ::set-env name=CXX::clang++
+        echo "CC=clang-10" >> $GITHUB_ENV
+        echo "CXX=clang++" >> $GITHUB_ENV
     - name: Set gcc envvars
       if: matrix.compiler == 'gcc'
       run: |
-        echo ::set-env name=CC::gcc-9
-        echo ::set-env name=CXX::g++-9
+        echo "CC=gcc-9" >> $GITHUB_ENV
+        echo "CXX=g++-9" >> $GITHUB_ENV
     - name: Install python dependencies
       env:
         PYTHONWARNINGS: ignore:DEPRECATION::pip._internal.cli.base_command
