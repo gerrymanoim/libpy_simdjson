@@ -69,7 +69,7 @@ jobs:
     - name: Build and install from an sdist
       run: |
         python setup.py sdist
-        pip install dist/libpy_simdjson-0.3.0.tar.gz[test]
+        pip install dist/libpy_simdjson-0.4.0.tar.gz[test]
     - name: Test
       run: |
         pytest --ignore-glob='*_benchmark.py'
