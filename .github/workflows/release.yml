@@ -18,8 +18,8 @@ jobs:
         python-version: 3.8
     - name: Set gcc envvars
       run: |
-        echo ::set-env name=CC::gcc-9
-        echo ::set-env name=CXX::g++-9
+        echo "CC=gcc-9" >> $GITHUB_ENV
+        echo "CXX=g++-9" >> $GITHUB_ENV
     - name: Install python dependencies
       env:
         PYTHONWARNINGS: ignore:DEPRECATION::pip._internal.cli.base_command
