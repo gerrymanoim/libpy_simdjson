@@ -46,7 +46,7 @@ jobs:
       if: startsWith(matrix.os, 'macos')
       run: |
         echo "EXTRA_INCLUDE_DIRS=/usr/local/include/" >> $GITHUB_ENV
-        echo ::add-path::/usr/local/opt/llvm/bin
+        echo "/usr/local/opt/llvm/bin" >> $GITHUB_PATH
         echo "LDFLAGS=-L/usr/local/opt/llvm/lib" >> $GITHUB_ENV
         echo "CPPFLAGS=-I/usr/local/opt/llvm/include" >> $GITHUB_ENV
         echo "AR=llvm-ar" >> $GITHUB_ENV
