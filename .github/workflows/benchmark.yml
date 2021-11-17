@@ -24,7 +24,7 @@ jobs:
         submodules: 'recursive'
     - name: Set up Python 3.8
       if: steps.check.outputs.triggered == 'true'
-      uses: actions/setup-python@v2.1.4
+      uses: actions/setup-python@v2.3.0
       with:
         python-version: 3.8
     - name: Set gcc envvars
