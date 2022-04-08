@@ -47,7 +47,7 @@ jobs:
       if: steps.check.outputs.triggered == 'true'
       run: |
         pytest | tee benchmarks.txt
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: steps.check.outputs.triggered == 'true'
       with:
         name: benchmark-artifact
